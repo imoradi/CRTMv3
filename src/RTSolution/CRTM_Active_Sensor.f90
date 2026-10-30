@@ -53,6 +53,10 @@ MODULE CRTM_Active_Sensor
   ! 1.0d818 converts from m^3 to mm^6/m^3 (standard radar reflectivity units)
   REAL(fp), PARAMETER :: M6_MM6 = 1.0d18
   REAL(fp), PARAMETER :: REFLECTIVITY_THRESHOLD = TINY(REAL(fp))
+  ! Floor on linear reflectivity (mm^6 m^-3; 1 = 0 dBZ) below which the dBZ
+  ! tangent-linear/adjoint is set to zero. d(dBZ)/dZ = 10/(Z ln10) is unbounded
+  ! as Z -> 0, which gives huge Jacobians for near-clear layers.
+  REAL(fp), PARAMETER :: REFLECTIVITY_TLAD_MIN = ONE
   REAL(fp), PARAMETER :: MM6_TO_CM6 = 1.0e-6_fp
   REAL(fp), PARAMETER :: KW_TEMPERATURE_K = 273.15_fp
 CONTAINS
@@ -496,21 +500,27 @@ SUBROUTINE CRTM_Compute_Reflectivity_TL(Atm, &
 
   ! Convert to dBZ tangent linear if above threshold
   WHERE (Reflectivity > REFLECTIVITY_THRESHOLD)
-     Reflectivity_TL = TEN * Reflectivity_TL / (Reflectivity * LOG(TEN))
-     RTSolution_TL%Reflectivity = Reflectivity_TL
      RTSolution_TL%ReflectivityLinear = ReflectivityLinear_TL
   ELSEWHERE
-     RTSolution_TL%Reflectivity = ZERO
      RTSolution_TL%ReflectivityLinear = ZERO
+  END WHERE
+  WHERE (Reflectivity > REFLECTIVITY_TLAD_MIN)
+     Reflectivity_TL = TEN * Reflectivity_TL / (Reflectivity * LOG(TEN))
+     RTSolution_TL%Reflectivity = Reflectivity_TL
+  ELSEWHERE
+     RTSolution_TL%Reflectivity = ZERO
   END WHERE
 
   WHERE (Reflectivity_Attenuated > REFLECTIVITY_THRESHOLD)
-     Reflectivity_Attenuated_TL = TEN * Reflectivity_Attenuated_TL / (Reflectivity_Attenuated * LOG(TEN))
-     RTSolution_TL%Reflectivity_Attenuated = Reflectivity_Attenuated_TL
      RTSolution_TL%Reflectivity_AttenuatedLinear = Reflectivity_AttenuatedLinear_TL
   ELSEWHERE
-     RTSolution_TL%Reflectivity_Attenuated = ZERO
      RTSolution_TL%Reflectivity_AttenuatedLinear = ZERO
+  END WHERE
+  WHERE (Reflectivity_Attenuated > REFLECTIVITY_TLAD_MIN)
+     Reflectivity_Attenuated_TL = TEN * Reflectivity_Attenuated_TL / (Reflectivity_Attenuated * LOG(TEN))
+     RTSolution_TL%Reflectivity_Attenuated = Reflectivity_Attenuated_TL
+  ELSEWHERE
+     RTSolution_TL%Reflectivity_Attenuated = ZERO
   END WHERE
 
 END SUBROUTINE CRTM_Compute_Reflectivity_TL
@@ -689,7 +699,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
 
   ! === Case 1: Logarithmic attenuated reflectivity (dBZ)
   IF (ANY(RTSolution_AD%Reflectivity_Attenuated /= ZERO)) THEN
-      WHERE (Reflectivity_Attenuated > REFLECTIVITY_THRESHOLD)
+      WHERE (Reflectivity_Attenuated > REFLECTIVITY_TLAD_MIN)
         Reflectivity_Attenuated_AD = Reflectivity_Attenuated_AD + &
              TEN * RTSolution_AD%Reflectivity_Attenuated / (Reflectivity_Attenuated * LOG(TEN))
       END WHERE
@@ -705,7 +715,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
 
   ! === Case 3: Logarithmic reflectivity (dBZ)
   IF (ANY(RTSolution_AD%Reflectivity /= ZERO)) THEN
-      WHERE (Reflectivity > REFLECTIVITY_THRESHOLD)
+      WHERE (Reflectivity > REFLECTIVITY_TLAD_MIN)
         Reflectivity_AD = Reflectivity_AD + &
              TEN * RTSolution_AD%Reflectivity / (Reflectivity * LOG(TEN))
       END WHERE
