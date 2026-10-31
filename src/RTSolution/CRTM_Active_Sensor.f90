@@ -402,23 +402,22 @@ END FUNCTION Water_Permittivity_Turner_2016
     Reflectivity =  P1 * (AtmOptics%Backscat_Coefficient / dZ_m) ! mm^6 m^-3
     Reflectivity_Attenuated = Transmittance * Reflectivity ! mm^6 m^-3
     ! Convert the unit to dBz
+    ! Linear Z is defined everywhere (0 means no echo); dBZ is missing below threshold
+    RTSolution%ReflectivityLinear = MM6_TO_CM6 * MAX(Reflectivity, ZERO)  ! cm^6m^-3
     WHERE (Reflectivity .GT.  REFLECTIVITY_THRESHOLD)
-        RTSolution%Reflectivity       = TEN * LOG10(Reflectivity) ! [dBZ]  
-        RTSolution%ReflectivityLinear = MM6_TO_CM6 * Reflectivity  ! cm^6m^-3  
+        RTSolution%Reflectivity       = TEN * LOG10(Reflectivity) ! [dBZ]
     ELSE WHERE
         RTSolution%Reflectivity       = MISSING_REFL
-        RTSolution%ReflectivityLinear = MISSING_REFL
     END WHERE
 
     ! Convert the unit to dBz
     ! Note that Reflectivity can be greater than zero but Reflectivity_Attenuated
     ! can be still zero if Transmittance is zero
+    RTSolution%Reflectivity_AttenuatedLinear = MM6_TO_CM6 * MAX(Reflectivity_Attenuated, ZERO) ! cm^6m^-3
     WHERE (Reflectivity_Attenuated .GT.  REFLECTIVITY_THRESHOLD)
         RTSolution%Reflectivity_Attenuated = TEN * LOG10(Reflectivity_Attenuated)      ! dBZ
-        RTSolution%Reflectivity_AttenuatedLinear = MM6_TO_CM6 * Reflectivity_attenuated ! cm^6m^-3   
     ELSE WHERE
         RTSolution%Reflectivity_Attenuated       = MISSING_REFL
-        RTSolution%Reflectivity_AttenuatedLinear = MISSING_REFL
     END WHERE
     
   END SUBROUTINE CRTM_Compute_Reflectivity
@@ -507,11 +506,8 @@ SUBROUTINE CRTM_Compute_Reflectivity_TL(Atm, &
   Reflectivity_AttenuatedLinear_TL = MM6_TO_CM6 * Reflectivity_Attenuated_TL
 
   ! Convert to dBZ tangent linear if above threshold
-  WHERE (Reflectivity > REFLECTIVITY_THRESHOLD)
-     RTSolution_TL%ReflectivityLinear = ReflectivityLinear_TL
-  ELSEWHERE
-     RTSolution_TL%ReflectivityLinear = ZERO
-  END WHERE
+  ! Linear outputs are smooth in Z (no log), so their TL is not masked
+  RTSolution_TL%ReflectivityLinear = ReflectivityLinear_TL
   WHERE (Reflectivity > REFLECTIVITY_TLAD_MIN)
      Reflectivity_TL = TEN * Reflectivity_TL / (MAX(Reflectivity, REFLECTIVITY_TLAD_CAP) * LOG(TEN))
      RTSolution_TL%Reflectivity = Reflectivity_TL
@@ -519,11 +515,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_TL(Atm, &
      RTSolution_TL%Reflectivity = ZERO
   END WHERE
 
-  WHERE (Reflectivity_Attenuated > REFLECTIVITY_THRESHOLD)
-     RTSolution_TL%Reflectivity_AttenuatedLinear = Reflectivity_AttenuatedLinear_TL
-  ELSEWHERE
-     RTSolution_TL%Reflectivity_AttenuatedLinear = ZERO
-  END WHERE
+  RTSolution_TL%Reflectivity_AttenuatedLinear = Reflectivity_AttenuatedLinear_TL
   WHERE (Reflectivity_Attenuated > REFLECTIVITY_TLAD_MIN)
      Reflectivity_Attenuated_TL = TEN * Reflectivity_Attenuated_TL / &
                                   (MAX(Reflectivity_Attenuated, REFLECTIVITY_TLAD_CAP) * LOG(TEN))
@@ -719,9 +711,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
 
   ! === Case 2: Linear attenuated reflectivity (cm^6/m^3)
   IF (ANY(RTSolution_AD%Reflectivity_AttenuatedLinear /= ZERO)) THEN
-      WHERE (Reflectivity_Attenuated > REFLECTIVITY_THRESHOLD)
-        Reflectivity_AttenuatedLinear_AD = Reflectivity_AttenuatedLinear_AD + RTSolution_AD%Reflectivity_AttenuatedLinear
-      END WHERE
+      Reflectivity_AttenuatedLinear_AD = Reflectivity_AttenuatedLinear_AD + RTSolution_AD%Reflectivity_AttenuatedLinear
       Reflectivity_Attenuated_AD = Reflectivity_Attenuated_AD + MM6_TO_CM6 * Reflectivity_AttenuatedLinear_AD
   END IF
 
@@ -737,9 +727,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
 
   ! === Case 4: Linear reflectivity (cm^6/m^3)
   IF (ANY(RTSolution_AD%ReflectivityLinear /= ZERO)) THEN
-      WHERE (Reflectivity > REFLECTIVITY_THRESHOLD)
-        ReflectivityLinear_AD = ReflectivityLinear_AD + RTSolution_AD%ReflectivityLinear
-      END WHERE
+      ReflectivityLinear_AD = ReflectivityLinear_AD + RTSolution_AD%ReflectivityLinear
       Reflectivity_AD = Reflectivity_AD + MM6_TO_CM6 * ReflectivityLinear_AD
   END IF
 
