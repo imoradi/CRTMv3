@@ -53,10 +53,17 @@ MODULE CRTM_Active_Sensor
   ! 1.0d818 converts from m^3 to mm^6/m^3 (standard radar reflectivity units)
   REAL(fp), PARAMETER :: M6_MM6 = 1.0d18
   REAL(fp), PARAMETER :: REFLECTIVITY_THRESHOLD = TINY(REAL(fp))
-  ! Floor on linear reflectivity (mm^6 m^-3; 1 = 0 dBZ) below which the dBZ
-  ! tangent-linear/adjoint is set to zero. d(dBZ)/dZ = 10/(Z ln10) is unbounded
-  ! as Z -> 0, which gives huge Jacobians for near-clear layers.
-  REAL(fp), PARAMETER :: REFLECTIVITY_TLAD_MIN = ONE
+  ! Limits on the dBZ tangent-linear/adjoint. d(dBZ)/dZ = 10/(Z ln10) is
+  ! unbounded as Z -> 0, which gives huge Jacobians for near-clear layers.
+  !   REFLECTIVITY_TLAD_MIN: below this Z (mm^6 m^-3) the dBZ TL/AD is zero.
+  !   REFLECTIVITY_TLAD_CAP: Z in the denominator is held at no less than this,
+  !                          so the gain is at most 10/(CAP ln10).
+  ! Both depend on the base state only, so TL stays linear and AD exact.
+  ! Defaults are 0 dBZ; override with the environment variables
+  ! CRTM_ACTIVE_TLAD_MIN_DBZ and CRTM_ACTIVE_TLAD_CAP_DBZ (in dBZ).
+  REAL(fp), SAVE :: REFLECTIVITY_TLAD_MIN = ONE
+  REAL(fp), SAVE :: REFLECTIVITY_TLAD_CAP = ONE
+  LOGICAL,  SAVE :: TLAD_LIMITS_SET = .FALSE.
   REAL(fp), PARAMETER :: MM6_TO_CM6 = 1.0e-6_fp
   REAL(fp), PARAMETER :: KW_TEMPERATURE_K = 273.15_fp
 CONTAINS
@@ -445,6 +452,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_TL(Atm, &
   REAL(fp) :: temp_sum
 
   n_Layers = Atm%n_Layers
+  CALL Set_TLAD_Limits()
 
   ! Compute layer interface heights if missing
   IF (ALL(Atm%Height .LT. EPSILON_FP)) THEN
@@ -505,7 +513,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_TL(Atm, &
      RTSolution_TL%ReflectivityLinear = ZERO
   END WHERE
   WHERE (Reflectivity > REFLECTIVITY_TLAD_MIN)
-     Reflectivity_TL = TEN * Reflectivity_TL / (Reflectivity * LOG(TEN))
+     Reflectivity_TL = TEN * Reflectivity_TL / (MAX(Reflectivity, REFLECTIVITY_TLAD_CAP) * LOG(TEN))
      RTSolution_TL%Reflectivity = Reflectivity_TL
   ELSEWHERE
      RTSolution_TL%Reflectivity = ZERO
@@ -517,7 +525,8 @@ SUBROUTINE CRTM_Compute_Reflectivity_TL(Atm, &
      RTSolution_TL%Reflectivity_AttenuatedLinear = ZERO
   END WHERE
   WHERE (Reflectivity_Attenuated > REFLECTIVITY_TLAD_MIN)
-     Reflectivity_Attenuated_TL = TEN * Reflectivity_Attenuated_TL / (Reflectivity_Attenuated * LOG(TEN))
+     Reflectivity_Attenuated_TL = TEN * Reflectivity_Attenuated_TL / &
+                                  (MAX(Reflectivity_Attenuated, REFLECTIVITY_TLAD_CAP) * LOG(TEN))
      RTSolution_TL%Reflectivity_Attenuated = Reflectivity_Attenuated_TL
   ELSEWHERE
      RTSolution_TL%Reflectivity_Attenuated = ZERO
@@ -639,6 +648,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
   ! Initialization
   !-----------------------------------------------------------------------
   n_Layers = Atm%n_Layers
+  CALL Set_TLAD_Limits()
 
   Transmittance_AD           = ZERO
   Reflectivity_AD            = ZERO
@@ -701,14 +711,17 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
   IF (ANY(RTSolution_AD%Reflectivity_Attenuated /= ZERO)) THEN
       WHERE (Reflectivity_Attenuated > REFLECTIVITY_TLAD_MIN)
         Reflectivity_Attenuated_AD = Reflectivity_Attenuated_AD + &
-             TEN * RTSolution_AD%Reflectivity_Attenuated / (Reflectivity_Attenuated * LOG(TEN))
+             TEN * RTSolution_AD%Reflectivity_Attenuated / &
+             (MAX(Reflectivity_Attenuated, REFLECTIVITY_TLAD_CAP) * LOG(TEN))
       END WHERE
 
   END IF
 
   ! === Case 2: Linear attenuated reflectivity (cm^6/m^3)
   IF (ANY(RTSolution_AD%Reflectivity_AttenuatedLinear /= ZERO)) THEN
-      Reflectivity_AttenuatedLinear_AD = Reflectivity_AttenuatedLinear_AD + RTSolution_AD%Reflectivity_AttenuatedLinear
+      WHERE (Reflectivity_Attenuated > REFLECTIVITY_THRESHOLD)
+        Reflectivity_AttenuatedLinear_AD = Reflectivity_AttenuatedLinear_AD + RTSolution_AD%Reflectivity_AttenuatedLinear
+      END WHERE
       Reflectivity_Attenuated_AD = Reflectivity_Attenuated_AD + MM6_TO_CM6 * Reflectivity_AttenuatedLinear_AD
   END IF
 
@@ -717,14 +730,16 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
   IF (ANY(RTSolution_AD%Reflectivity /= ZERO)) THEN
       WHERE (Reflectivity > REFLECTIVITY_TLAD_MIN)
         Reflectivity_AD = Reflectivity_AD + &
-             TEN * RTSolution_AD%Reflectivity / (Reflectivity * LOG(TEN))
+             TEN * RTSolution_AD%Reflectivity / (MAX(Reflectivity, REFLECTIVITY_TLAD_CAP) * LOG(TEN))
       END WHERE
 
   END IF
 
   ! === Case 4: Linear reflectivity (cm^6/m^3)
   IF (ANY(RTSolution_AD%ReflectivityLinear /= ZERO)) THEN
-      ReflectivityLinear_AD = ReflectivityLinear_AD + RTSolution_AD%ReflectivityLinear
+      WHERE (Reflectivity > REFLECTIVITY_THRESHOLD)
+        ReflectivityLinear_AD = ReflectivityLinear_AD + RTSolution_AD%ReflectivityLinear
+      END WHERE
       Reflectivity_AD = Reflectivity_AD + MM6_TO_CM6 * ReflectivityLinear_AD
   END IF
 
@@ -752,5 +767,30 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
   AtmOptics_AD%optical_depth = AtmOptics_AD%optical_depth + Optical_Depth_AD / GeometryInfo%Cosine_Sensor_Zenith
 
 END SUBROUTINE CRTM_Compute_Reflectivity_AD
+
+! Read the dBZ TL/AD limits from the environment (once)
+SUBROUTINE Set_TLAD_Limits()
+  CHARACTER(LEN=32) :: env_val
+  INTEGER :: env_len, env_stat, io_stat
+  REAL(fp) :: dbz
+
+  IF (TLAD_LIMITS_SET) RETURN
+!$OMP CRITICAL (crtm_active_tlad_limits)
+  IF (.NOT. TLAD_LIMITS_SET) THEN
+  CALL GET_ENVIRONMENT_VARIABLE('CRTM_ACTIVE_TLAD_MIN_DBZ', env_val, env_len, env_stat)
+  IF (env_stat == 0 .AND. env_len > 0) THEN
+     READ(env_val, *, IOSTAT=io_stat) dbz
+     IF (io_stat == 0) REFLECTIVITY_TLAD_MIN = TEN**(dbz / TEN)
+  END IF
+  REFLECTIVITY_TLAD_CAP = REFLECTIVITY_TLAD_MIN
+  CALL GET_ENVIRONMENT_VARIABLE('CRTM_ACTIVE_TLAD_CAP_DBZ', env_val, env_len, env_stat)
+  IF (env_stat == 0 .AND. env_len > 0) THEN
+     READ(env_val, *, IOSTAT=io_stat) dbz
+     IF (io_stat == 0) REFLECTIVITY_TLAD_CAP = MAX(TEN**(dbz / TEN), REFLECTIVITY_TLAD_MIN)
+  END IF
+  TLAD_LIMITS_SET = .TRUE.
+  END IF
+!$OMP END CRITICAL (crtm_active_tlad_limits)
+END SUBROUTINE Set_TLAD_Limits
 
 END MODULE CRTM_Active_Sensor
