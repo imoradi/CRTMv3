@@ -35,6 +35,9 @@ MODULE CRTM_Active_Sensor
                                       ACTIVE_MS_NONE, &
                                       ACTIVE_MS_EFFECTIVE_ATTENUATION, &
                                       ACTIVE_MS_TDTS
+  USE CRTM_Active_MS_TDTS,      ONLY: TDTS_Wide_Angle, &
+                                      TDTS_Wide_Angle_TL, &
+                                      TDTS_Wide_Angle_AD
   ! Disable all implicit typing
   IMPLICIT NONE
 
@@ -70,6 +73,10 @@ MODULE CRTM_Active_Sensor
   LOGICAL,  SAVE :: TLAD_LIMITS_SET = .FALSE.
   REAL(fp), PARAMETER :: MM6_TO_CM6 = 1.0e-6_fp
   REAL(fp), PARAMETER :: KW_TEMPERATURE_K = 273.15_fp
+  REAL(fp), PARAMETER :: FOUR_PI = 4.0_fp*3.14159265358979323846_fp
+  ! Layers with a single-scatter albedo below this are treated as non-scattering
+  ! (matches BS_THRESHOLD in CRTM_AtmOptics_Combine)
+  REAL(fp), PARAMETER :: BS_THRESHOLD_MS = 1.0e-10_fp
 CONTAINS
 
 !--------------------------------------------------------------------------------
@@ -365,6 +372,7 @@ END FUNCTION Water_Permittivity_Turner_2016
     COMPLEX :: perm(AtmOptics%n_Layers), kw(AtmOptics%n_Layers)
     INTEGER :: k, n_Layers
     REAL(fp) :: temp_sum
+    REAL(fp) :: Z_ms(AtmOptics%n_Layers)
 
     n_Layers = Atm%n_Layers
 
@@ -406,6 +414,11 @@ END FUNCTION Water_Permittivity_Turner_2016
     ! vertical thickness of layers
     Reflectivity =  P1 * (AtmOptics%Backscat_Coefficient / dZ_m) ! mm^6 m^-3
     Reflectivity_Attenuated = Transmittance * Reflectivity ! mm^6 m^-3
+    ! Wide-angle multiple scattering (TDTS) adds to the attenuated return
+    IF (MS_Algorithm_Id(Options) == ACTIVE_MS_TDTS) THEN
+       CALL TDTS_Reflectivity(AtmOptics, GeometryInfo, Options, Height, P1, Z_ms)
+       Reflectivity_Attenuated = Reflectivity_Attenuated + Z_ms
+    END IF
     ! Convert the unit to dBz
     ! Linear Z is defined everywhere (0 means no echo); dBZ is missing below threshold
     RTSolution%ReflectivityLinear = MM6_TO_CM6 * MAX(Reflectivity, ZERO)  ! cm^6m^-3
@@ -456,6 +469,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_TL(Atm, &
   COMPLEX :: perm(AtmOptics%n_Layers)
   INTEGER :: k, n_Layers
   REAL(fp) :: temp_sum
+  REAL(fp), DIMENSION(AtmOptics%n_Layers) :: Z_ms, Z_ms_TL
 
   n_Layers = Atm%n_Layers
   CALL Set_TLAD_Limits()
@@ -495,6 +509,11 @@ SUBROUTINE CRTM_Compute_Reflectivity_TL(Atm, &
 
   Reflectivity = P1 * (AtmOptics%Backscat_Coefficient / dZ_m)
   Reflectivity_Attenuated = Transmittance * Reflectivity
+  Z_ms_TL = ZERO
+  IF (MS_Algorithm_Id(Options) == ACTIVE_MS_TDTS) THEN
+     CALL TDTS_Reflectivity_TL(AtmOptics, AtmOptics_TL, GeometryInfo, Options, Height, P1, Z_ms, Z_ms_TL)
+     Reflectivity_Attenuated = Reflectivity_Attenuated + Z_ms
+  END IF
 
   ! Tangent-linear calculations
   CALL Path_Optical_Depth_TL(AtmOptics, AtmOptics_TL, GeometryInfo, Options, Optical_Depth_TL)
@@ -504,7 +523,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_TL(Atm, &
   END DO
 
   Reflectivity_TL = P1 * (AtmOptics_TL%Backscat_Coefficient / dZ_m)
-  Reflectivity_Attenuated_TL = Transmittance * Reflectivity_TL + Reflectivity * Transmittance_TL
+  Reflectivity_Attenuated_TL = Transmittance * Reflectivity_TL + Reflectivity * Transmittance_TL + Z_ms_TL
 
   ! Linear reflectivity TL
   ReflectivityLinear = MM6_TO_CM6 * Reflectivity
@@ -644,6 +663,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
   ! Adjoint variables
   REAL(fp), DIMENSION(AtmOptics%n_Layers) :: Transmittance_AD, Reflectivity_AD, Reflectivity_Attenuated_AD, Optical_Depth_AD
   REAL(fp), DIMENSION(AtmOptics%n_Layers) :: ReflectivityLinear_AD, Reflectivity_AttenuatedLinear_AD
+  REAL(fp), DIMENSION(AtmOptics%n_Layers) :: Z_ms
 
   !-----------------------------------------------------------------------
   ! Initialization
@@ -699,6 +719,10 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
   P1 = (M6_MM6 * Wavelength_m**4.0_fp) / (PI**5.0_fp * Kw_2)
   Reflectivity = P1 * (AtmOptics%Backscat_Coefficient / dZ_m)
   Reflectivity_Attenuated = Transmittance * Reflectivity
+  IF (MS_Algorithm_Id(Options) == ACTIVE_MS_TDTS) THEN
+     CALL TDTS_Reflectivity(AtmOptics, GeometryInfo, Options, Height, P1, Z_ms)
+     Reflectivity_Attenuated = Reflectivity_Attenuated + Z_ms
+  END IF
 
   ! Linear reflectivities (cm^6/m^3)
   ReflectivityLinear = MM6_TO_CM6 * Reflectivity
@@ -745,6 +769,10 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
   !-----------------------------------------------------------------------
   Transmittance_AD = Transmittance_AD + Reflectivity * Reflectivity_Attenuated_AD
   Reflectivity_AD  = Reflectivity_AD  + Transmittance * Reflectivity_Attenuated_AD
+  ! Wide-angle multiple scattering term
+  IF (MS_Algorithm_Id(Options) == ACTIVE_MS_TDTS) &
+     CALL TDTS_Reflectivity_AD(AtmOptics, GeometryInfo, Options, Height, P1, &
+                               Reflectivity_Attenuated_AD, AtmOptics_AD)
 
   ! Backscatter coefficient adjoint
   AtmOptics_AD%Backscat_Coefficient = AtmOptics_AD%Backscat_Coefficient + Reflectivity_AD * P1 / dZ_m  
@@ -780,7 +808,6 @@ SUBROUTINE Get_MS_Settings(Options, ms_algorithm, eta)
   TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN)  :: Options
   INTEGER,                           INTENT(OUT) :: ms_algorithm
   REAL(fp),                          INTENT(OUT) :: eta
-  LOGICAL, SAVE :: tdts_warned = .FALSE.
 
   ms_algorithm = ACTIVE_MS_NONE
   eta          = ZERO
@@ -790,17 +817,8 @@ SUBROUTINE Get_MS_Settings(Options, ms_algorithm, eta)
   END IF
 
   SELECT CASE (ms_algorithm)
-  CASE (ACTIVE_MS_NONE, ACTIVE_MS_EFFECTIVE_ATTENUATION)
+  CASE (ACTIVE_MS_NONE, ACTIVE_MS_EFFECTIVE_ATTENUATION, ACTIVE_MS_TDTS)
      ! supported
-  CASE (ACTIVE_MS_TDTS)
-     ! Not available yet: fall back to single scattering
-     IF (.NOT. tdts_warned) THEN
-        CALL Display_Message('CRTM_Active_Sensor', &
-             'Active_MS_Algorithm=3 (TDTS) is not implemented yet; using single scattering', &
-             WARNING)
-        tdts_warned = .TRUE.
-     END IF
-     ms_algorithm = ACTIVE_MS_NONE
   CASE DEFAULT
      ms_algorithm = ACTIVE_MS_NONE
   END SELECT
@@ -836,11 +854,15 @@ SUBROUTINE Path_Optical_Depth(AtmOptics, GeometryInfo, Options, tau)
   INTEGER  :: ms_algorithm, n
   REAL(fp) :: eta
 
+  REAL(fp) :: w(AtmOptics%n_Layers), g(AtmOptics%n_Layers)
+
   CALL Get_MS_Settings(Options, ms_algorithm, eta)
   n = AtmOptics%n_Layers
   tau(1:n) = AtmOptics%Optical_Depth(1:n)
   IF (ms_algorithm == ACTIVE_MS_EFFECTIVE_ATTENUATION) THEN
      tau(1:n) = tau(1:n) * (ONE - eta * AtmOptics%Single_Scatter_Albedo(1:n))
+  ELSE IF (ms_algorithm == ACTIVE_MS_TDTS) THEN
+     CALL Unscaled_Optics(AtmOptics, tau(1:n), w, g)
   END IF
   tau(1:n) = tau(1:n) / GeometryInfo%Cosine_Sensor_Zenith
 END SUBROUTINE Path_Optical_Depth
@@ -853,12 +875,16 @@ SUBROUTINE Path_Optical_Depth_TL(AtmOptics, AtmOptics_TL, GeometryInfo, Options,
   INTEGER  :: ms_algorithm, n
   REAL(fp) :: eta
 
+  REAL(fp), DIMENSION(AtmOptics%n_Layers) :: w_TL, g_TL
+
   CALL Get_MS_Settings(Options, ms_algorithm, eta)
   n = AtmOptics%n_Layers
   tau_TL(1:n) = AtmOptics_TL%Optical_Depth(1:n)
   IF (ms_algorithm == ACTIVE_MS_EFFECTIVE_ATTENUATION) THEN
      tau_TL(1:n) = AtmOptics_TL%Optical_Depth(1:n) * (ONE - eta * AtmOptics%Single_Scatter_Albedo(1:n)) &
                  - eta * AtmOptics%Optical_Depth(1:n) * AtmOptics_TL%Single_Scatter_Albedo(1:n)
+  ELSE IF (ms_algorithm == ACTIVE_MS_TDTS) THEN
+     CALL Unscaled_Optics_TL(AtmOptics, AtmOptics_TL, tau_TL(1:n), w_TL, g_TL)
   END IF
   tau_TL(1:n) = tau_TL(1:n) / GeometryInfo%Cosine_Sensor_Zenith
 END SUBROUTINE Path_Optical_Depth_TL
@@ -873,6 +899,8 @@ SUBROUTINE Path_Optical_Depth_AD(AtmOptics, GeometryInfo, Options, tau_AD, AtmOp
   REAL(fp) :: eta
   REAL(fp) :: t_AD(SIZE(tau_AD))
 
+  REAL(fp), DIMENSION(SIZE(tau_AD)) :: w_AD, g_AD
+
   CALL Get_MS_Settings(Options, ms_algorithm, eta)
   n = AtmOptics%n_Layers
   t_AD(1:n) = tau_AD(1:n) / GeometryInfo%Cosine_Sensor_Zenith
@@ -880,9 +908,233 @@ SUBROUTINE Path_Optical_Depth_AD(AtmOptics, GeometryInfo, Options, tau_AD, AtmOp
      AtmOptics_AD%Single_Scatter_Albedo(1:n) = AtmOptics_AD%Single_Scatter_Albedo(1:n) &
           - eta * AtmOptics%Optical_Depth(1:n) * t_AD(1:n)
      t_AD(1:n) = t_AD(1:n) * (ONE - eta * AtmOptics%Single_Scatter_Albedo(1:n))
+     AtmOptics_AD%Optical_Depth(1:n) = AtmOptics_AD%Optical_Depth(1:n) + t_AD(1:n)
+  ELSE IF (ms_algorithm == ACTIVE_MS_TDTS) THEN
+     w_AD = ZERO; g_AD = ZERO
+     CALL Unscaled_Optics_AD(AtmOptics, t_AD(1:n), w_AD(1:n), g_AD(1:n), AtmOptics_AD)
+  ELSE
+     AtmOptics_AD%Optical_Depth(1:n) = AtmOptics_AD%Optical_Depth(1:n) + t_AD(1:n)
   END IF
-  AtmOptics_AD%Optical_Depth(1:n) = AtmOptics_AD%Optical_Depth(1:n) + t_AD(1:n)
 END SUBROUTINE Path_Optical_Depth_AD
+
+!--------------------------------------------------------------------------------
+!
+! NAME:
+!       MS_Algorithm_Id
+!
+! PURPOSE:
+!       Multiple-scattering algorithm selected in the optional Options input.
+!
+!--------------------------------------------------------------------------------
+INTEGER FUNCTION MS_Algorithm_Id(Options)
+  TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN) :: Options
+  REAL(fp) :: eta
+  CALL Get_MS_Settings(Options, MS_Algorithm_Id, eta)
+END FUNCTION MS_Algorithm_Id
+
+!--------------------------------------------------------------------------------
+!
+! NAME:
+!       Unscaled_Optics, Unscaled_Optics_TL, Unscaled_Optics_AD
+!
+! PURPOSE:
+!       Undo the delta truncation applied in CRTM_AtmOptics_Combine to get
+!       the layer optical depth, single-scatter albedo and asymmetry factor
+!       of the full phase function. With f = AtmOptics%Delta_Truncation,
+!       tau' and w' the truncated values:
+!          D   = 1 - f + f*w'
+!          w   = w'/D
+!          tau = tau'*D/(1 - f)
+!          g   = c1/1.5, c1 = AtmOptics%Phase_Coefficient(1,1,k)
+!       (the Legendre coefficients are normalised so that c0 = 1/2).
+!       Layers without significant scattering keep tau' and get w = g = 0.
+!
+!--------------------------------------------------------------------------------
+LOGICAL FUNCTION Has_Scattering(AtmOptics, k)
+  TYPE(CRTM_AtmOptics_type), INTENT(IN) :: AtmOptics
+  INTEGER,                   INTENT(IN) :: k
+  Has_Scattering = AtmOptics%Include_Scattering .AND. AtmOptics%n_Legendre_Terms > 0 .AND. &
+                   AtmOptics%Single_Scatter_Albedo(k) > BS_THRESHOLD_MS
+END FUNCTION Has_Scattering
+
+SUBROUTINE Unscaled_Optics(AtmOptics, tau, w, g)
+  TYPE(CRTM_AtmOptics_type), INTENT(IN)  :: AtmOptics
+  REAL(fp),                  INTENT(OUT) :: tau(:), w(:), g(:)
+  INTEGER  :: k
+  REAL(fp) :: f, wp, d
+  DO k = 1, AtmOptics%n_Layers
+     tau(k) = AtmOptics%Optical_Depth(k)
+     w(k) = ZERO
+     g(k) = ZERO
+     IF (.NOT. Has_Scattering(AtmOptics, k)) CYCLE
+     f  = AtmOptics%Delta_Truncation(k)
+     wp = AtmOptics%Single_Scatter_Albedo(k)
+     d  = ONE - f + f*wp
+     w(k)   = wp/d
+     tau(k) = AtmOptics%Optical_Depth(k)*d/(ONE - f)
+     g(k)   = AtmOptics%Phase_Coefficient(1,1,k)/1.5_fp
+  END DO
+END SUBROUTINE Unscaled_Optics
+
+SUBROUTINE Unscaled_Optics_TL(AtmOptics, AtmOptics_TL, tau_TL, w_TL, g_TL)
+  TYPE(CRTM_AtmOptics_type), INTENT(IN)  :: AtmOptics, AtmOptics_TL
+  REAL(fp),                  INTENT(OUT) :: tau_TL(:), w_TL(:), g_TL(:)
+  INTEGER  :: k
+  REAL(fp) :: f, wp, tp, d, f_TL, wp_TL, tp_TL, d_TL
+  DO k = 1, AtmOptics%n_Layers
+     tau_TL(k) = AtmOptics_TL%Optical_Depth(k)
+     w_TL(k) = ZERO
+     g_TL(k) = ZERO
+     IF (.NOT. Has_Scattering(AtmOptics, k)) CYCLE
+     f  = AtmOptics%Delta_Truncation(k);    f_TL  = AtmOptics_TL%Delta_Truncation(k)
+     wp = AtmOptics%Single_Scatter_Albedo(k); wp_TL = AtmOptics_TL%Single_Scatter_Albedo(k)
+     tp = AtmOptics%Optical_Depth(k);       tp_TL = AtmOptics_TL%Optical_Depth(k)
+     d    = ONE - f + f*wp
+     d_TL = f_TL*(wp - ONE) + f*wp_TL
+     w_TL(k)   = wp_TL/d - wp*d_TL/(d*d)
+     tau_TL(k) = (tp_TL*d + tp*d_TL)/(ONE - f) + tp*d*f_TL/((ONE - f)*(ONE - f))
+     g_TL(k)   = AtmOptics_TL%Phase_Coefficient(1,1,k)/1.5_fp
+  END DO
+END SUBROUTINE Unscaled_Optics_TL
+
+SUBROUTINE Unscaled_Optics_AD(AtmOptics, tau_AD, w_AD, g_AD, AtmOptics_AD)
+  TYPE(CRTM_AtmOptics_type), INTENT(IN)     :: AtmOptics
+  REAL(fp),                  INTENT(IN)     :: tau_AD(:), w_AD(:), g_AD(:)
+  TYPE(CRTM_AtmOptics_type), INTENT(IN OUT) :: AtmOptics_AD
+  INTEGER  :: k
+  REAL(fp) :: f, wp, tp, d, d_AD
+  DO k = 1, AtmOptics%n_Layers
+     IF (.NOT. Has_Scattering(AtmOptics, k)) THEN
+        AtmOptics_AD%Optical_Depth(k) = AtmOptics_AD%Optical_Depth(k) + tau_AD(k)
+        CYCLE
+     END IF
+     f  = AtmOptics%Delta_Truncation(k)
+     wp = AtmOptics%Single_Scatter_Albedo(k)
+     tp = AtmOptics%Optical_Depth(k)
+     d  = ONE - f + f*wp
+     AtmOptics_AD%Phase_Coefficient(1,1,k) = AtmOptics_AD%Phase_Coefficient(1,1,k) + g_AD(k)/1.5_fp
+     ! tau = tp*d/(1-f)
+     AtmOptics_AD%Optical_Depth(k) = AtmOptics_AD%Optical_Depth(k) + tau_AD(k)*d/(ONE - f)
+     d_AD = tau_AD(k)*tp/(ONE - f)
+     AtmOptics_AD%Delta_Truncation(k) = AtmOptics_AD%Delta_Truncation(k) &
+                                      + tau_AD(k)*tp*d/((ONE - f)*(ONE - f))
+     ! w = wp/d
+     AtmOptics_AD%Single_Scatter_Albedo(k) = AtmOptics_AD%Single_Scatter_Albedo(k) + w_AD(k)/d
+     d_AD = d_AD - w_AD(k)*wp/(d*d)
+     ! d = 1 - f + f*wp
+     AtmOptics_AD%Delta_Truncation(k) = AtmOptics_AD%Delta_Truncation(k) + d_AD*(wp - ONE)
+     AtmOptics_AD%Single_Scatter_Albedo(k) = AtmOptics_AD%Single_Scatter_Albedo(k) + d_AD*f
+  END DO
+END SUBROUTINE Unscaled_Optics_AD
+
+!--------------------------------------------------------------------------------
+!
+! NAME:
+!       TDTS_Setup
+!
+! PURPOSE:
+!       Radar geometry and unscaled optics for the TDTS calculation:
+!         edge(0:n)  distance from the radar to the layer boundaries along
+!                    the beam (m), flat-earth approximation
+!         ext(n)     extinction coefficient (m-1) = tau/dz
+!         rho        1/e half-width of the antenna pattern (rad), from the
+!                    full 3-dB beamwidth as rho = theta_3dB/(2 sqrt(ln 2))
+!
+!--------------------------------------------------------------------------------
+SUBROUTINE TDTS_Setup(AtmOptics, GeometryInfo, Options, Height, edge, ext, w, g, rho, cbe)
+  TYPE(CRTM_AtmOptics_type),         INTENT(IN)  :: AtmOptics
+  TYPE(CRTM_GeometryInfo_type),      INTENT(IN)  :: GeometryInfo
+  TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN)  :: Options
+  REAL(fp),                          INTENT(IN)  :: Height(0:)
+  REAL(fp),                          INTENT(OUT) :: edge(0:), ext(:), w(:), g(:), rho, cbe
+  REAL(fp) :: altitude, beamwidth, tau(AtmOptics%n_Layers)
+  INTEGER  :: n
+  TYPE(CRTM_Options_type) :: Default_Options
+
+  IF (PRESENT(Options)) THEN
+     altitude  = REAL(Options%Active_MS_Altitude, fp)
+     beamwidth = REAL(Options%Active_MS_Beamwidth, fp)
+     cbe       = REAL(Options%Active_MS_CBE, fp)
+  ELSE
+     altitude  = REAL(Default_Options%Active_MS_Altitude, fp)
+     beamwidth = REAL(Default_Options%Active_MS_Beamwidth, fp)
+     cbe       = REAL(Default_Options%Active_MS_CBE, fp)
+  END IF
+  rho = (beamwidth*PI/180.0_fp)/(TWO*SQRT(LOG(TWO)))
+  n = AtmOptics%n_Layers
+  edge(0:n) = (altitude - Height(0:n))/GeometryInfo%Cosine_Sensor_Zenith
+  CALL Unscaled_Optics(AtmOptics, tau, w(1:n), g(1:n))
+  ext(1:n) = tau/(Height(0:n-1) - Height(1:n))
+END SUBROUTINE TDTS_Setup
+
+!--------------------------------------------------------------------------------
+!
+! NAME:
+!       TDTS_Reflectivity, TDTS_Reflectivity_TL, TDTS_Reflectivity_AD
+!
+! PURPOSE:
+!       Apparent reflectivity (mm^6 m^-3) from wide-angle multiple scattering,
+!       Z_ms = P1 * 4*pi * beta_ms, where beta_ms (m-1 sr-1) is the TDTS
+!       apparent backscatter and P1*4*pi converts backscatter to Z in the same
+!       way as P1 converts AtmOptics%Backscat_Coefficient/dz (Hogan and
+!       Battaglia 2008, Eq. 1).
+!
+!--------------------------------------------------------------------------------
+SUBROUTINE TDTS_Reflectivity(AtmOptics, GeometryInfo, Options, Height, P1, Z_ms)
+  TYPE(CRTM_AtmOptics_type),         INTENT(IN)  :: AtmOptics
+  TYPE(CRTM_GeometryInfo_type),      INTENT(IN)  :: GeometryInfo
+  TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN)  :: Options
+  REAL(fp),                          INTENT(IN)  :: Height(0:), P1(:)
+  REAL(fp),                          INTENT(OUT) :: Z_ms(:)
+  INTEGER  :: n
+  REAL(fp) :: rho, cbe
+  REAL(fp) :: edge(0:AtmOptics%n_Layers)
+  REAL(fp), DIMENSION(AtmOptics%n_Layers) :: ext, w, g, bscat
+
+  n = AtmOptics%n_Layers
+  CALL TDTS_Setup(AtmOptics, GeometryInfo, Options, Height, edge, ext, w, g, rho, cbe)
+  CALL TDTS_Wide_Angle(n, edge, ext, w, g, rho, rho, cbe, bscat)
+  Z_ms(1:n) = P1(1:n)*FOUR_PI*bscat
+END SUBROUTINE TDTS_Reflectivity
+
+SUBROUTINE TDTS_Reflectivity_TL(AtmOptics, AtmOptics_TL, GeometryInfo, Options, Height, P1, Z_ms, Z_ms_TL)
+  TYPE(CRTM_AtmOptics_type),         INTENT(IN)  :: AtmOptics, AtmOptics_TL
+  TYPE(CRTM_GeometryInfo_type),      INTENT(IN)  :: GeometryInfo
+  TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN)  :: Options
+  REAL(fp),                          INTENT(IN)  :: Height(0:), P1(:)
+  REAL(fp),                          INTENT(OUT) :: Z_ms(:), Z_ms_TL(:)
+  INTEGER  :: n
+  REAL(fp) :: rho, cbe
+  REAL(fp) :: edge(0:AtmOptics%n_Layers)
+  REAL(fp), DIMENSION(AtmOptics%n_Layers) :: ext, w, g, bscat, tau_TL, ext_TL, w_TL, g_TL, bscat_TL
+
+  n = AtmOptics%n_Layers
+  CALL TDTS_Setup(AtmOptics, GeometryInfo, Options, Height, edge, ext, w, g, rho, cbe)
+  CALL Unscaled_Optics_TL(AtmOptics, AtmOptics_TL, tau_TL, w_TL, g_TL)
+  ext_TL = tau_TL/(Height(0:n-1) - Height(1:n))
+  CALL TDTS_Wide_Angle_TL(n, edge, ext, w, g, rho, rho, cbe, ext_TL, w_TL, g_TL, bscat, bscat_TL)
+  Z_ms(1:n)    = P1(1:n)*FOUR_PI*bscat
+  Z_ms_TL(1:n) = P1(1:n)*FOUR_PI*bscat_TL
+END SUBROUTINE TDTS_Reflectivity_TL
+
+SUBROUTINE TDTS_Reflectivity_AD(AtmOptics, GeometryInfo, Options, Height, P1, Z_ms_AD, AtmOptics_AD)
+  TYPE(CRTM_AtmOptics_type),         INTENT(IN)     :: AtmOptics
+  TYPE(CRTM_GeometryInfo_type),      INTENT(IN)     :: GeometryInfo
+  TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN)     :: Options
+  REAL(fp),                          INTENT(IN)     :: Height(0:), P1(:), Z_ms_AD(:)
+  TYPE(CRTM_AtmOptics_type),         INTENT(IN OUT) :: AtmOptics_AD
+  INTEGER  :: n
+  REAL(fp) :: rho, cbe
+  REAL(fp) :: edge(0:AtmOptics%n_Layers)
+  REAL(fp), DIMENSION(AtmOptics%n_Layers) :: ext, w, g, bscat_AD, ext_AD, w_AD, g_AD
+
+  n = AtmOptics%n_Layers
+  CALL TDTS_Setup(AtmOptics, GeometryInfo, Options, Height, edge, ext, w, g, rho, cbe)
+  bscat_AD = P1(1:n)*FOUR_PI*Z_ms_AD(1:n)
+  ext_AD = ZERO; w_AD = ZERO; g_AD = ZERO
+  CALL TDTS_Wide_Angle_AD(n, edge, ext, w, g, rho, rho, cbe, bscat_AD, ext_AD, w_AD, g_AD)
+  CALL Unscaled_Optics_AD(AtmOptics, ext_AD/(Height(0:n-1) - Height(1:n)), w_AD, g_AD, AtmOptics_AD)
+END SUBROUTINE TDTS_Reflectivity_AD
 
 ! Read the dBZ TL/AD limits from the environment (once)
 SUBROUTINE Set_TLAD_Limits()

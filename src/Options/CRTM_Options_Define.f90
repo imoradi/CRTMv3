@@ -193,6 +193,13 @@ MODULE CRTM_Options_Define
     INTEGER(Long) :: Active_MS_Algorithm = ACTIVE_MS_NONE
     ! Forward-scattering fraction for ACTIVE_MS_EFFECTIVE_ATTENUATION, in [0,1]
     REAL(Double)  :: Active_MS_Eta = 0.5_Double
+    ! Radar geometry for ACTIVE_MS_TDTS (defaults are for GPM DPR)
+    !   Active_MS_Altitude  : platform altitude (m)
+    !   Active_MS_Beamwidth : full 3-dB antenna beamwidth (degrees)
+    !   Active_MS_CBE       : coherent backscatter enhancement factor (1 to 2)
+    REAL(Double)  :: Active_MS_Altitude  = 407000.0_Double
+    REAL(Double)  :: Active_MS_Beamwidth = 0.71_Double
+    REAL(Double)  :: Active_MS_CBE       = 1.0_Double
   END TYPE CRTM_Options_type
   !:tdoc-:
 
@@ -385,7 +392,10 @@ CONTAINS
     n_Streams              , &
     Aircraft_Pressure      , &
     Active_MS_Algorithm    , &
-    Active_MS_Eta            )
+    Active_MS_Eta          , &
+    Active_MS_Altitude     , &
+    Active_MS_Beamwidth    , &
+    Active_MS_CBE            )
     ! Arguments
     TYPE(CRTM_Options_type), INTENT(IN OUT) :: self
     LOGICAL ,      OPTIONAL, INTENT(IN)     :: Check_Input
@@ -406,6 +416,9 @@ CONTAINS
     REAL(fp),      OPTIONAL, INTENT(IN)     :: Aircraft_Pressure
     INTEGER ,      OPTIONAL, INTENT(IN)     :: Active_MS_Algorithm
     REAL(fp),      OPTIONAL, INTENT(IN)     :: Active_MS_Eta
+    REAL(fp),      OPTIONAL, INTENT(IN)     :: Active_MS_Altitude
+    REAL(fp),      OPTIONAL, INTENT(IN)     :: Active_MS_Beamwidth
+    REAL(fp),      OPTIONAL, INTENT(IN)     :: Active_MS_CBE
 
     ! Set the "direct copy" components
     IF ( PRESENT(Check_Input           ) ) self%Check_Input            = Check_Input
@@ -416,6 +429,9 @@ CONTAINS
     IF ( PRESENT(Aircraft_Pressure     ) ) self%Aircraft_Pressure      = Aircraft_Pressure
     IF ( PRESENT(Active_MS_Algorithm   ) ) self%Active_MS_Algorithm    = Active_MS_Algorithm
     IF ( PRESENT(Active_MS_Eta         ) ) self%Active_MS_Eta          = MIN(MAX(Active_MS_Eta, ZERO), ONE)
+    IF ( PRESENT(Active_MS_Altitude    ) ) self%Active_MS_Altitude     = Active_MS_Altitude
+    IF ( PRESENT(Active_MS_Beamwidth   ) ) self%Active_MS_Beamwidth    = Active_MS_Beamwidth
+    IF ( PRESENT(Active_MS_CBE         ) ) self%Active_MS_CBE          = Active_MS_CBE
 
     ! Set the "minimal processing" components
     IF ( PRESENT(n_Streams) ) THEN
@@ -844,6 +860,9 @@ CONTAINS
     WRITE(*,'(3x,"Include scattering flag     :",1x,l1)') self%Include_Scattering
     WRITE(*,'(3x,"Active MS algorithm Id      :",1x,i0)') self%Active_MS_Algorithm
     WRITE(*,'(3x,"Active MS eta               :",1x,es22.15)') self%Active_MS_Eta
+    WRITE(*,'(3x,"Active MS altitude (m)      :",1x,es22.15)') self%Active_MS_Altitude
+    WRITE(*,'(3x,"Active MS 3dB beamwidth(deg):",1x,es22.15)') self%Active_MS_Beamwidth
+    WRITE(*,'(3x,"Active MS coherent enhance. :",1x,es22.15)') self%Active_MS_CBE
     WRITE(*,'(3x,"Use n_Streams flag          :",1x,l1)') self%Use_n_Streams
     WRITE(*,'(3x,"n_Streams                   :",1x,i0)') self%n_Streams
     WRITE(*,'(3x,"Cloud cover overlap method  :",1x,a )') TRIM(CloudCover_Overlap_Name(self%Overlap_Id))
@@ -1366,7 +1385,10 @@ CONTAINS
                (x%Include_Scattering       .EQV.   y%Include_Scattering    ) .AND. &
                (x%Overlap_Id                ==     y%Overlap_Id            ) .AND. &
                (x%Active_MS_Algorithm       ==     y%Active_MS_Algorithm   ) .AND. &
-               (x%Active_MS_Eta          .EqualTo. y%Active_MS_Eta         )
+               (x%Active_MS_Eta          .EqualTo. y%Active_MS_Eta         ) .AND. &
+               (x%Active_MS_Altitude     .EqualTo. y%Active_MS_Altitude    ) .AND. &
+               (x%Active_MS_Beamwidth    .EqualTo. y%Active_MS_Beamwidth   ) .AND. &
+               (x%Active_MS_CBE          .EqualTo. y%Active_MS_CBE         )
 
     ! Emissivity component
     is_equal = is_equal .AND. &
