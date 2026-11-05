@@ -1208,7 +1208,7 @@ CONTAINS
                                                   GeometryInfo        , & ! Input
                                                   SensorIndex         , & ! Input
                                                   ChannelIndex        , & ! Input
-                                                  RTSolution(ln,m))       ! Input/Output
+                                                  RTSolution(ln,m), Options=Opt)       ! Input/Output
                ENDIF
 
             END DO Channel_Loop

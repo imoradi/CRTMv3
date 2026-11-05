@@ -30,7 +30,11 @@ MODULE CRTM_Active_Sensor
   USE Fundamental_Constants,     ONLY: PI
   USE ODPS_CoordinateMapping,     ONLY: Geopotential_Height
   USE CRTM_GeometryInfo_Define, ONLY: CRTM_GeometryInfo_type
-  USE Message_Handler         , ONLY: Display_Message
+  USE Message_Handler         , ONLY: Display_Message, WARNING
+  USE CRTM_Options_Define,      ONLY: CRTM_Options_type, &
+                                      ACTIVE_MS_NONE, &
+                                      ACTIVE_MS_EFFECTIVE_ATTENUATION, &
+                                      ACTIVE_MS_TDTS
   ! Disable all implicit typing
   IMPLICIT NONE
 
@@ -337,7 +341,8 @@ END FUNCTION Water_Permittivity_Turner_2016
                                        GeometryInfo , &  ! Input
                                        SensorIndex , &  ! Input
                                        ChannelIndex, &  ! Input
-                                       RTSolution )     ! Input/Output
+                                       RTSolution  , &  ! Input/Output
+                                       Options     )    ! Optional input
     ! Arguments
     TYPE(CRTM_Atmosphere_type), INTENT(IN)     :: Atm
     TYPE(CRTM_GeometryInfo_type), INTENT(IN)     :: GeometryInfo
@@ -345,6 +350,7 @@ END FUNCTION Water_Permittivity_Turner_2016
     INTEGER                   , INTENT(IN)     :: ChannelIndex
     TYPE(CRTM_AtmOptics_type) , INTENT(IN OUT)     :: AtmOptics
     TYPE(CRTM_RTSolution_type), INTENT(IN OUT) :: RTSolution
+    TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN) :: Options
 
     REAL(fp) :: Frequency, Wavenumber, Wavelength_m
     REAL(fp) :: Reflectivity(AtmOptics%n_Layers)
@@ -359,8 +365,6 @@ END FUNCTION Water_Permittivity_Turner_2016
     COMPLEX :: perm(AtmOptics%n_Layers), kw(AtmOptics%n_Layers)
     INTEGER :: k, n_Layers
     REAL(fp) :: temp_sum
-    REAL(fp) :: ext_coef(AtmOptics%n_Layers) ! extinction coefficient  
-    character(len=16) :: ms_env_val
 
     n_Layers = Atm%n_Layers
 
@@ -390,8 +394,9 @@ END FUNCTION Water_Permittivity_Turner_2016
     Kw_2 = ABS(kw)**TWO      
     P1 = (M6_MM6 * Wavelength_m**4.0_fp) / (PI**5.0_fp * Kw_2)
 
-    ! Calculate transmittance 
-    Optical_Depth = AtmOptics%optical_depth / GeometryInfo%Cosine_Sensor_Zenith
+    ! Calculate transmittance along the (slant) path, with the
+    ! multiple-scattering treatment selected in Options
+    CALL Path_Optical_Depth(AtmOptics, GeometryInfo, Options, Optical_Depth)
     DO k = 1, n_layers
        temp_sum = SUM(Optical_Depth(1:k))
        Transmittance(k) = EXP(-TWO * temp_sum)
@@ -428,12 +433,14 @@ SUBROUTINE CRTM_Compute_Reflectivity_TL(Atm, &
                                        GeometryInfo, &
                                        SensorIndex, &
                                        ChannelIndex, &
-                                       RTSolution_TL)
+                                       RTSolution_TL, &
+                                       Options)
   TYPE(CRTM_Atmosphere_type),     INTENT(IN)     :: Atm
   TYPE(CRTM_AtmOptics_type),      INTENT(IN)     :: AtmOptics, AtmOptics_TL
   TYPE(CRTM_GeometryInfo_type),   INTENT(IN)     :: GeometryInfo
   INTEGER,                        INTENT(IN)     :: SensorIndex, ChannelIndex
   TYPE(CRTM_RTSolution_type),     INTENT(IN OUT) :: RTSolution_TL
+  TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN)  :: Options
 
   ! Locals
   REAL(fp) :: Frequency, Wavenumber, Wavelength_m
@@ -480,7 +487,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_TL(Atm, &
   P1 = (M6_MM6 * Wavelength_m**4.0_fp) / (PI**5.0_fp * Kw_2)
 
   ! Forward (base state) calculations
-  Optical_Depth = AtmOptics%optical_depth / GeometryInfo%Cosine_Sensor_Zenith
+  CALL Path_Optical_Depth(AtmOptics, GeometryInfo, Options, Optical_Depth)
   DO k = 1, n_Layers
      temp_sum = SUM(Optical_Depth(1:k))
      Transmittance(k) = EXP(-TWO * temp_sum)
@@ -490,7 +497,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_TL(Atm, &
   Reflectivity_Attenuated = Transmittance * Reflectivity
 
   ! Tangent-linear calculations
-  Optical_Depth_TL = AtmOptics_TL%optical_depth / GeometryInfo%Cosine_Sensor_Zenith
+  CALL Path_Optical_Depth_TL(AtmOptics, AtmOptics_TL, GeometryInfo, Options, Optical_Depth_TL)
   DO k = 1, n_Layers
      temp_sum = SUM(Optical_Depth_TL(1:k))
      Transmittance_TL(k) = -TWO * Transmittance(k) * temp_sum
@@ -595,7 +602,8 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
                                        SensorIndex, &
                                        ChannelIndex, &
                                        AtmOptics_AD, &
-                                       RTSolution_AD)
+                                       RTSolution_AD, &
+                                       Options)
   !-----------------------------------------------------------------------
   !  Compute adjoint sensitivities of reflectivity. The dBZ and linear
   !  adjoint inputs in RTSolution_AD are all accumulated, so a caller may
@@ -618,6 +626,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
   TYPE(CRTM_RTSolution_type),      TARGET, INTENT(IN) :: RTSolution
   TYPE(CRTM_AtmOptics_type),       INTENT(IN OUT) :: AtmOptics_AD
   TYPE(CRTM_RTSolution_type),      INTENT(IN OUT) :: RTSolution_AD
+  TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN)   :: Options
 
   ! Locals
   INTEGER :: k, j, n_Layers
@@ -680,7 +689,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
   perm_im = AIMAG(perm)
   Kw_2 = ABS((perm - ONE) / (perm + TWO))**TWO
 
-  Optical_Depth = AtmOptics%optical_depth / GeometryInfo%Cosine_Sensor_Zenith
+  CALL Path_Optical_Depth(AtmOptics, GeometryInfo, Options, Optical_Depth)
 
   DO k = 1, n_Layers
       temp_sum = SUM(Optical_Depth(1:k))
@@ -750,11 +759,130 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
   END DO
 
   !-----------------------------------------------------------------------
-  ! Adjoint of optical depth normalization
+  ! Adjoint of the path optical depth (slant path + MS treatment)
   !-----------------------------------------------------------------------
-  AtmOptics_AD%optical_depth = AtmOptics_AD%optical_depth + Optical_Depth_AD / GeometryInfo%Cosine_Sensor_Zenith
+  CALL Path_Optical_Depth_AD(AtmOptics, GeometryInfo, Options, Optical_Depth_AD, AtmOptics_AD)
 
 END SUBROUTINE CRTM_Compute_Reflectivity_AD
+
+!--------------------------------------------------------------------------------
+!
+! NAME:
+!       Get_MS_Settings
+!
+! PURPOSE:
+!       Return the active-sensor multiple-scattering algorithm id and the
+!       forward-scattering fraction (eta) from the optional Options input.
+!       Without Options the single-scattering treatment is used.
+!
+!--------------------------------------------------------------------------------
+SUBROUTINE Get_MS_Settings(Options, ms_algorithm, eta)
+  TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN)  :: Options
+  INTEGER,                           INTENT(OUT) :: ms_algorithm
+  REAL(fp),                          INTENT(OUT) :: eta
+  LOGICAL, SAVE :: tdts_warned = .FALSE.
+
+  ms_algorithm = ACTIVE_MS_NONE
+  eta          = ZERO
+  IF (PRESENT(Options)) THEN
+     ms_algorithm = INT(Options%Active_MS_Algorithm)
+     eta          = MIN(MAX(REAL(Options%Active_MS_Eta, fp), ZERO), ONE)
+  END IF
+
+  SELECT CASE (ms_algorithm)
+  CASE (ACTIVE_MS_NONE, ACTIVE_MS_EFFECTIVE_ATTENUATION)
+     ! supported
+  CASE (ACTIVE_MS_TDTS)
+     ! Not available yet: fall back to single scattering
+     IF (.NOT. tdts_warned) THEN
+        CALL Display_Message('CRTM_Active_Sensor', &
+             'Active_MS_Algorithm=3 (TDTS) is not implemented yet; using single scattering', &
+             WARNING)
+        tdts_warned = .TRUE.
+     END IF
+     ms_algorithm = ACTIVE_MS_NONE
+  CASE DEFAULT
+     ms_algorithm = ACTIVE_MS_NONE
+  END SELECT
+END SUBROUTINE Get_MS_Settings
+
+!--------------------------------------------------------------------------------
+!
+! NAME:
+!       Path_Optical_Depth, Path_Optical_Depth_TL, Path_Optical_Depth_AD
+!
+! PURPOSE:
+!       Layer optical depth along the radar path used for the two-way
+!       attenuation, tau_path(k) = tau(k) / cos(theta).
+!
+!       ACTIVE_MS_NONE:
+!         tau is AtmOptics%Optical_Depth (already delta-truncated in
+!         CRTM_AtmOptics_Combine), i.e. the current CRTM behaviour.
+!
+!       ACTIVE_MS_EFFECTIVE_ATTENUATION:
+!         A fraction eta of the scattered power is assumed to stay in the
+!         radar beam (forward scattering), so only (1 - eta) of the
+!         scattering optical depth attenuates the return:
+!            tau_eff(k) = tau(k) * (1 - eta * w(k))
+!         with w = AtmOptics%Single_Scatter_Albedo. eta = 0 recovers single
+!         scattering; eta = 1 removes all scattering from the attenuation.
+!
+!--------------------------------------------------------------------------------
+SUBROUTINE Path_Optical_Depth(AtmOptics, GeometryInfo, Options, tau)
+  TYPE(CRTM_AtmOptics_type),         INTENT(IN)  :: AtmOptics
+  TYPE(CRTM_GeometryInfo_type),      INTENT(IN)  :: GeometryInfo
+  TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN)  :: Options
+  REAL(fp),                          INTENT(OUT) :: tau(:)
+  INTEGER  :: ms_algorithm, n
+  REAL(fp) :: eta
+
+  CALL Get_MS_Settings(Options, ms_algorithm, eta)
+  n = AtmOptics%n_Layers
+  tau(1:n) = AtmOptics%Optical_Depth(1:n)
+  IF (ms_algorithm == ACTIVE_MS_EFFECTIVE_ATTENUATION) THEN
+     tau(1:n) = tau(1:n) * (ONE - eta * AtmOptics%Single_Scatter_Albedo(1:n))
+  END IF
+  tau(1:n) = tau(1:n) / GeometryInfo%Cosine_Sensor_Zenith
+END SUBROUTINE Path_Optical_Depth
+
+SUBROUTINE Path_Optical_Depth_TL(AtmOptics, AtmOptics_TL, GeometryInfo, Options, tau_TL)
+  TYPE(CRTM_AtmOptics_type),         INTENT(IN)  :: AtmOptics, AtmOptics_TL
+  TYPE(CRTM_GeometryInfo_type),      INTENT(IN)  :: GeometryInfo
+  TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN)  :: Options
+  REAL(fp),                          INTENT(OUT) :: tau_TL(:)
+  INTEGER  :: ms_algorithm, n
+  REAL(fp) :: eta
+
+  CALL Get_MS_Settings(Options, ms_algorithm, eta)
+  n = AtmOptics%n_Layers
+  tau_TL(1:n) = AtmOptics_TL%Optical_Depth(1:n)
+  IF (ms_algorithm == ACTIVE_MS_EFFECTIVE_ATTENUATION) THEN
+     tau_TL(1:n) = AtmOptics_TL%Optical_Depth(1:n) * (ONE - eta * AtmOptics%Single_Scatter_Albedo(1:n)) &
+                 - eta * AtmOptics%Optical_Depth(1:n) * AtmOptics_TL%Single_Scatter_Albedo(1:n)
+  END IF
+  tau_TL(1:n) = tau_TL(1:n) / GeometryInfo%Cosine_Sensor_Zenith
+END SUBROUTINE Path_Optical_Depth_TL
+
+SUBROUTINE Path_Optical_Depth_AD(AtmOptics, GeometryInfo, Options, tau_AD, AtmOptics_AD)
+  TYPE(CRTM_AtmOptics_type),         INTENT(IN)     :: AtmOptics
+  TYPE(CRTM_GeometryInfo_type),      INTENT(IN)     :: GeometryInfo
+  TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN)     :: Options
+  REAL(fp),                          INTENT(IN)     :: tau_AD(:)
+  TYPE(CRTM_AtmOptics_type),         INTENT(IN OUT) :: AtmOptics_AD
+  INTEGER  :: ms_algorithm, n
+  REAL(fp) :: eta
+  REAL(fp) :: t_AD(SIZE(tau_AD))
+
+  CALL Get_MS_Settings(Options, ms_algorithm, eta)
+  n = AtmOptics%n_Layers
+  t_AD(1:n) = tau_AD(1:n) / GeometryInfo%Cosine_Sensor_Zenith
+  IF (ms_algorithm == ACTIVE_MS_EFFECTIVE_ATTENUATION) THEN
+     AtmOptics_AD%Single_Scatter_Albedo(1:n) = AtmOptics_AD%Single_Scatter_Albedo(1:n) &
+          - eta * AtmOptics%Optical_Depth(1:n) * t_AD(1:n)
+     t_AD(1:n) = t_AD(1:n) * (ONE - eta * AtmOptics%Single_Scatter_Albedo(1:n))
+  END IF
+  AtmOptics_AD%Optical_Depth(1:n) = AtmOptics_AD%Optical_Depth(1:n) + t_AD(1:n)
+END SUBROUTINE Path_Optical_Depth_AD
 
 ! Read the dBZ TL/AD limits from the environment (once)
 SUBROUTINE Set_TLAD_Limits()

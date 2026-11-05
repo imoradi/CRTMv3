@@ -62,6 +62,9 @@ MODULE CRTM_Options_Define
   PRIVATE
   ! Datatypes
   PUBLIC :: CRTM_Options_type
+  PUBLIC :: ACTIVE_MS_NONE
+  PUBLIC :: ACTIVE_MS_EFFECTIVE_ATTENUATION
+  PUBLIC :: ACTIVE_MS_TDTS
   ! ...Inherited types
   PUBLIC :: SSU_Input_type
   PUBLIC :: Zeeman_Input_type
@@ -107,6 +110,11 @@ MODULE CRTM_Options_Define
   REAL(Double), PARAMETER :: ONE  = 1.0_Double
   REAL(Double), PARAMETER :: PI = 3.141592653589793238462643383279_Double
   ! Integer "logicals" for I/O
+  ! Active sensor multiple scattering algorithm ids
+  INTEGER(Long), PARAMETER :: ACTIVE_MS_NONE                  = 0_Long
+  INTEGER(Long), PARAMETER :: ACTIVE_MS_EFFECTIVE_ATTENUATION = 1_Long
+  INTEGER(Long), PARAMETER :: ACTIVE_MS_TDTS                  = 3_Long
+
   INTEGER(Long), PARAMETER :: FALSE = 0_Long
   INTEGER(Long), PARAMETER :: TRUE  = 1_Long
   ! Message string length
@@ -177,6 +185,14 @@ MODULE CRTM_Options_Define
 
     ! Whether to skip this profile
     LOGICAL :: Skip_Profile = .FALSE.
+
+    ! Active sensor (radar) multiple scattering treatment
+    !   ACTIVE_MS_NONE (0)                : single scattering (default)
+    !   ACTIVE_MS_EFFECTIVE_ATTENUATION (1): attenuation scaled by (1 - eta*w)
+    !   ACTIVE_MS_TDTS (3)                : time-dependent two-stream (Hogan & Battaglia 2008)
+    INTEGER(Long) :: Active_MS_Algorithm = ACTIVE_MS_NONE
+    ! Forward-scattering fraction for ACTIVE_MS_EFFECTIVE_ATTENUATION, in [0,1]
+    REAL(Double)  :: Active_MS_Eta = 0.5_Double
   END TYPE CRTM_Options_type
   !:tdoc-:
 
@@ -367,7 +383,9 @@ CONTAINS
     Use_Emissivity         , &
     Use_Direct_Reflectivity, &
     n_Streams              , &
-    Aircraft_Pressure        )
+    Aircraft_Pressure      , &
+    Active_MS_Algorithm    , &
+    Active_MS_Eta            )
     ! Arguments
     TYPE(CRTM_Options_type), INTENT(IN OUT) :: self
     LOGICAL ,      OPTIONAL, INTENT(IN)     :: Check_Input
@@ -386,6 +404,8 @@ CONTAINS
     LOGICAL ,      OPTIONAL, INTENT(IN)     :: Use_Direct_Reflectivity
     INTEGER ,      OPTIONAL, INTENT(IN)     :: n_Streams
     REAL(fp),      OPTIONAL, INTENT(IN)     :: Aircraft_Pressure
+    INTEGER ,      OPTIONAL, INTENT(IN)     :: Active_MS_Algorithm
+    REAL(fp),      OPTIONAL, INTENT(IN)     :: Active_MS_Eta
 
     ! Set the "direct copy" components
     IF ( PRESENT(Check_Input           ) ) self%Check_Input            = Check_Input
@@ -394,6 +414,8 @@ CONTAINS
     IF ( PRESENT(Apply_NLTE_Correction ) ) self%Apply_NLTE_Correction  = Apply_NLTE_Correction
     IF ( PRESENT(Include_Scattering    ) ) self%Include_Scattering     = Include_Scattering
     IF ( PRESENT(Aircraft_Pressure     ) ) self%Aircraft_Pressure      = Aircraft_Pressure
+    IF ( PRESENT(Active_MS_Algorithm   ) ) self%Active_MS_Algorithm    = Active_MS_Algorithm
+    IF ( PRESENT(Active_MS_Eta         ) ) self%Active_MS_Eta          = MIN(MAX(Active_MS_Eta, ZERO), ONE)
 
     ! Set the "minimal processing" components
     IF ( PRESENT(n_Streams) ) THEN
@@ -820,6 +842,8 @@ CONTAINS
     WRITE(*,'(3x,"Aircraft pressure altitude  :",1x,es22.15)') self%Aircraft_Pressure
     WRITE(*,'(3x,"RT algorithm Id             :",1x,i0)') self%RT_Algorithm_Id
     WRITE(*,'(3x,"Include scattering flag     :",1x,l1)') self%Include_Scattering
+    WRITE(*,'(3x,"Active MS algorithm Id      :",1x,i0)') self%Active_MS_Algorithm
+    WRITE(*,'(3x,"Active MS eta               :",1x,es22.15)') self%Active_MS_Eta
     WRITE(*,'(3x,"Use n_Streams flag          :",1x,l1)') self%Use_n_Streams
     WRITE(*,'(3x,"n_Streams                   :",1x,i0)') self%n_Streams
     WRITE(*,'(3x,"Cloud cover overlap method  :",1x,a )') TRIM(CloudCover_Overlap_Name(self%Overlap_Id))
@@ -1340,7 +1364,9 @@ CONTAINS
                (x%Use_n_Streams            .EQV.   y%Use_n_Streams         ) .AND. &
                (x%n_Streams                 ==     y%n_Streams             ) .AND. &
                (x%Include_Scattering       .EQV.   y%Include_Scattering    ) .AND. &
-               (x%Overlap_Id                ==     y%Overlap_Id            )
+               (x%Overlap_Id                ==     y%Overlap_Id            ) .AND. &
+               (x%Active_MS_Algorithm       ==     y%Active_MS_Algorithm   ) .AND. &
+               (x%Active_MS_Eta          .EqualTo. y%Active_MS_Eta         )
 
     ! Emissivity component
     is_equal = is_equal .AND. &

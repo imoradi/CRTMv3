@@ -1175,7 +1175,7 @@ CONTAINS
                                                GeometryInfo    , & ! Input
                                                SensorIndex     , & ! Input
                                                ChannelIndex    , & ! Input
-                                               RTSolution(ln,m))   ! Input/Output
+                                               RTSolution(ln,m), Options=Opt)   ! Input/Output
             ENDIF
 
         IF ( SpcCoeff_IsInfraredSensor( SC(SensorIndex) ) .OR. &
@@ -1274,7 +1274,7 @@ CONTAINS
                                                    SensorIndex , &  ! Input
                                                    ChannelIndex, &  ! Input
                                                    AtmOptics_AD   , &  ! Input/Output
-                                                   RTSolution_AD(ln,m))   ! Input/Output
+                                                   RTSolution_AD(ln,m), Options=Opt)   ! Input/Output
               ENDIF
 
 

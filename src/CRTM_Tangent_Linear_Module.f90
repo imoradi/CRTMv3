@@ -1380,7 +1380,7 @@ CONTAINS
                                              GeometryInfo    , & ! Input
                                              SensorIndex     , & ! Input
                                              ChannelIndex    , & ! Input
-                                             RTSolution(ln,m))   ! Input/Output
+                                             RTSolution(ln,m), Options=Opt)   ! Input/Output
 
               CALL CRTM_Compute_Reflectivity_TL(Atm                 , & ! Input
                                                 AtmOptics(nt)       , & ! Input
@@ -1388,7 +1388,7 @@ CONTAINS
                                                 GeometryInfo        , & ! Input
                                                 SensorIndex         , & ! Input
                                                 ChannelIndex        , & ! Input
-                                                RTSolution_TL(ln,m))    ! Input/Output
+                                                RTSolution_TL(ln,m), Options=Opt)    ! Input/Output
           ENDIF
 
 

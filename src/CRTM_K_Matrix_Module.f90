@@ -1387,7 +1387,7 @@ CONTAINS
                                                    GeometryInfo    , & ! Input
                                                    SensorIndex     , & ! Input
                                                    ChannelIndex    , & ! Input
-                                                   RTSolution(ln,m))   ! Input/Output
+                                                   RTSolution(ln,m), Options=Opt)   ! Input/Output
                 ENDIF
                 !=============================
 
@@ -1486,7 +1486,7 @@ CONTAINS
                                                   SensorIndex     , &  ! Input
                                                   ChannelIndex    , &  ! Input
                                                   AtmOptics_K(nt) , &  ! Input/Output
-                                                  RTSolution_K(ln,m))  ! Input/Output
+                                                  RTSolution_K(ln,m), Options=Opt)  ! Input/Output
               END IF
 
 
