@@ -193,12 +193,14 @@ MODULE CRTM_Options_Define
     INTEGER(Long) :: Active_MS_Algorithm = ACTIVE_MS_NONE
     ! Forward-scattering fraction for ACTIVE_MS_EFFECTIVE_ATTENUATION, in [0,1]
     REAL(Double)  :: Active_MS_Eta = 0.5_Double
-    ! Radar geometry for ACTIVE_MS_TDTS (defaults are for GPM DPR)
+    ! Radar geometry for ACTIVE_MS_TDTS
     !   Active_MS_Altitude  : platform altitude (m)
     !   Active_MS_Beamwidth : full 3-dB antenna beamwidth (degrees)
     !   Active_MS_CBE       : coherent backscatter enhancement factor (1 to 2)
-    REAL(Double)  :: Active_MS_Altitude  = 407000.0_Double
-    REAL(Double)  :: Active_MS_Beamwidth = 0.71_Double
+    ! A value <= 0 for altitude or beamwidth selects the sensor default
+    ! (CloudSat CPR: 705 km, 0.108 deg; otherwise GPM DPR: 407 km, 0.71 deg)
+    REAL(Double)  :: Active_MS_Altitude  = -1.0_Double
+    REAL(Double)  :: Active_MS_Beamwidth = -1.0_Double
     REAL(Double)  :: Active_MS_CBE       = 1.0_Double
   END TYPE CRTM_Options_type
   !:tdoc-:

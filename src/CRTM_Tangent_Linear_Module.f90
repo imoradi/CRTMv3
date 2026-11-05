@@ -116,7 +116,8 @@ MODULE CRTM_Tangent_Linear_Module
   USE CRTM_CloudCover_Define,     ONLY: CRTM_CloudCover_type
   USE CRTM_Active_Sensor,         ONLY: CRTM_Compute_Reflectivity, &
                                         CRTM_Compute_Reflectivity_TL, &
-                                        Calculate_Cloud_Water_Density
+                                        Calculate_Cloud_Water_Density, &
+                                        Calculate_Cloud_Water_Density_TL
 
   ! Internal variable definition modules
   ! ...AtmOptics
@@ -662,6 +663,8 @@ CONTAINS
       END IF
 
       Atm_TL%Height = Atm%Height
+      ! Water density perturbation follows the water content
+      CALL Calculate_Cloud_Water_Density_TL(Atm, Atm_TL)
 
       ! Check the total number of Atm layers
       IF ( Atm%n_Layers > MAX_N_LAYERS .OR. Atm_TL%n_Layers > MAX_N_LAYERS) THEN

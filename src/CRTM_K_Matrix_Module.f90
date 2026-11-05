@@ -132,7 +132,8 @@ MODULE CRTM_K_Matrix_Module
   USE CRTM_CloudCover_Define,     ONLY: CRTM_CloudCover_type
   USE CRTM_Active_Sensor,         ONLY: CRTM_Compute_Reflectivity   , &
                                         CRTM_Compute_Reflectivity_AD, &
-                                        Calculate_Cloud_Water_Density
+                                        Calculate_Cloud_Water_Density, &
+                                        Calculate_Cloud_Water_Density_AD
 
   ! Internal variable definition modules
   ! ...AtmOptics
@@ -1685,6 +1686,9 @@ CONTAINS
                 CYCLE Thread_Loop
               END IF
             END IF
+
+            ! K-matrix of the water density calculation
+            CALL Calculate_Cloud_Water_Density_AD(Atm, Atm_K(nt))
 
             ! K-matrix of the atmosphere layer addition
             Err_Thread = CRTM_Atmosphere_AddLayers_AD( Atmosphere(m), Atm_K(nt), Atmosphere_K(ln,m) )

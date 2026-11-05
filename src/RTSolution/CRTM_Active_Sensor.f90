@@ -51,6 +51,8 @@ MODULE CRTM_Active_Sensor
   PUBLIC  :: CRTM_Compute_Reflectivity_AD
   PUBLIC  :: Calculate_Height
   PUBLIC  :: Calculate_Cloud_Water_Density
+  PUBLIC  :: Calculate_Cloud_Water_Density_TL
+  PUBLIC  :: Calculate_Cloud_Water_Density_AD
 
   ! ----------
   ! Parameters
@@ -177,6 +179,45 @@ SUBROUTINE Calculate_Cloud_Water_Density(Atm, &
    END DO
 
 END SUBROUTINE Calculate_Cloud_Water_Density
+
+!--------------------------------------------------------------------------------
+!
+! NAME:
+!       Calculate_Cloud_Water_Density_TL, Calculate_Cloud_Water_Density_AD
+!
+! PURPOSE:
+!       Tangent-linear and adjoint of Water_Density = Water_Content/dz.
+!       The cloud optics lookup tables can be indexed by water density, so
+!       its perturbation must follow the water content. The layer
+!       thickness dz is taken as fixed (from the forward Atm%Height), as in
+!       the rest of the active-sensor code. In the adjoint the water
+!       density sensitivity is moved to the water content and then zeroed,
+!       since Water_Density is not an independent input.
+!
+!--------------------------------------------------------------------------------
+SUBROUTINE Calculate_Cloud_Water_Density_TL(Atm, Atm_TL)
+   TYPE(CRTM_Atmosphere_type), INTENT(IN)     :: Atm
+   TYPE(CRTM_Atmosphere_type), INTENT(IN OUT) :: Atm_TL
+   REAL(fp) :: dZ_m(Atm%n_Layers)
+   INTEGER  :: n
+   dZ_m = Atm%Height(0:Atm%n_Layers-1) - Atm%Height(1:Atm%n_Layers)
+   DO n = 1, MIN(Atm%n_Clouds, Atm_TL%n_Clouds)
+      Atm_TL%Cloud(n)%Water_Density(1:Atm%n_Layers) = Atm_TL%Cloud(n)%Water_Content(1:Atm%n_Layers) / dZ_m
+   END DO
+END SUBROUTINE Calculate_Cloud_Water_Density_TL
+
+SUBROUTINE Calculate_Cloud_Water_Density_AD(Atm, Atm_AD)
+   TYPE(CRTM_Atmosphere_type), INTENT(IN)     :: Atm
+   TYPE(CRTM_Atmosphere_type), INTENT(IN OUT) :: Atm_AD
+   REAL(fp) :: dZ_m(Atm%n_Layers)
+   INTEGER  :: n
+   dZ_m = Atm%Height(0:Atm%n_Layers-1) - Atm%Height(1:Atm%n_Layers)
+   DO n = 1, MIN(Atm%n_Clouds, Atm_AD%n_Clouds)
+      Atm_AD%Cloud(n)%Water_Content(1:Atm%n_Layers) = Atm_AD%Cloud(n)%Water_Content(1:Atm%n_Layers) + &
+                                                      Atm_AD%Cloud(n)%Water_Density(1:Atm%n_Layers) / dZ_m
+      Atm_AD%Cloud(n)%Water_Density = ZERO
+   END DO
+END SUBROUTINE Calculate_Cloud_Water_Density_AD
 
 !--------------------------------------------------------------------------------
 !
@@ -416,7 +457,7 @@ END FUNCTION Water_Permittivity_Turner_2016
     Reflectivity_Attenuated = Transmittance * Reflectivity ! mm^6 m^-3
     ! Wide-angle multiple scattering (TDTS) adds to the attenuated return
     IF (MS_Algorithm_Id(Options) == ACTIVE_MS_TDTS) THEN
-       CALL TDTS_Reflectivity(AtmOptics, GeometryInfo, Options, Height, P1, Z_ms)
+       CALL TDTS_Reflectivity(SensorIndex, AtmOptics, GeometryInfo, Options, Height, P1, Z_ms)
        Reflectivity_Attenuated = Reflectivity_Attenuated + Z_ms
     END IF
     ! Convert the unit to dBz
@@ -511,7 +552,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_TL(Atm, &
   Reflectivity_Attenuated = Transmittance * Reflectivity
   Z_ms_TL = ZERO
   IF (MS_Algorithm_Id(Options) == ACTIVE_MS_TDTS) THEN
-     CALL TDTS_Reflectivity_TL(AtmOptics, AtmOptics_TL, GeometryInfo, Options, Height, P1, Z_ms, Z_ms_TL)
+     CALL TDTS_Reflectivity_TL(SensorIndex, AtmOptics, AtmOptics_TL, GeometryInfo, Options, Height, P1, Z_ms, Z_ms_TL)
      Reflectivity_Attenuated = Reflectivity_Attenuated + Z_ms
   END IF
 
@@ -720,7 +761,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
   Reflectivity = P1 * (AtmOptics%Backscat_Coefficient / dZ_m)
   Reflectivity_Attenuated = Transmittance * Reflectivity
   IF (MS_Algorithm_Id(Options) == ACTIVE_MS_TDTS) THEN
-     CALL TDTS_Reflectivity(AtmOptics, GeometryInfo, Options, Height, P1, Z_ms)
+     CALL TDTS_Reflectivity(SensorIndex, AtmOptics, GeometryInfo, Options, Height, P1, Z_ms)
      Reflectivity_Attenuated = Reflectivity_Attenuated + Z_ms
   END IF
 
@@ -771,7 +812,7 @@ SUBROUTINE CRTM_Compute_Reflectivity_AD(Atm, &
   Reflectivity_AD  = Reflectivity_AD  + Transmittance * Reflectivity_Attenuated_AD
   ! Wide-angle multiple scattering term
   IF (MS_Algorithm_Id(Options) == ACTIVE_MS_TDTS) &
-     CALL TDTS_Reflectivity_AD(AtmOptics, GeometryInfo, Options, Height, P1, &
+     CALL TDTS_Reflectivity_AD(SensorIndex, AtmOptics, GeometryInfo, Options, Height, P1, &
                                Reflectivity_Attenuated_AD, AtmOptics_AD)
 
   ! Backscatter coefficient adjoint
@@ -1041,7 +1082,8 @@ END SUBROUTINE Unscaled_Optics_AD
 !                    full 3-dB beamwidth as rho = theta_3dB/(2 sqrt(ln 2))
 !
 !--------------------------------------------------------------------------------
-SUBROUTINE TDTS_Setup(AtmOptics, GeometryInfo, Options, Height, edge, ext, w, g, rho, cbe)
+SUBROUTINE TDTS_Setup(AtmOptics, GeometryInfo, SensorIndex, Options, Height, edge, ext, w, g, rho, cbe)
+  INTEGER,                           INTENT(IN)  :: SensorIndex
   TYPE(CRTM_AtmOptics_type),         INTENT(IN)  :: AtmOptics
   TYPE(CRTM_GeometryInfo_type),      INTENT(IN)  :: GeometryInfo
   TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN)  :: Options
@@ -1059,6 +1101,14 @@ SUBROUTINE TDTS_Setup(AtmOptics, GeometryInfo, Options, Height, edge, ext, w, g,
      altitude  = REAL(Default_Options%Active_MS_Altitude, fp)
      beamwidth = REAL(Default_Options%Active_MS_Beamwidth, fp)
      cbe       = REAL(Default_Options%Active_MS_CBE, fp)
+  END IF
+  ! Sensor defaults
+  IF (INDEX(SC(SensorIndex)%Sensor_Id, 'cpr') > 0) THEN
+     IF (altitude  <= ZERO) altitude  = 705000.0_fp
+     IF (beamwidth <= ZERO) beamwidth = 0.108_fp
+  ELSE
+     IF (altitude  <= ZERO) altitude  = 407000.0_fp
+     IF (beamwidth <= ZERO) beamwidth = 0.71_fp
   END IF
   rho = (beamwidth*PI/180.0_fp)/(TWO*SQRT(LOG(TWO)))
   n = AtmOptics%n_Layers
@@ -1080,7 +1130,8 @@ END SUBROUTINE TDTS_Setup
 !       Battaglia 2008, Eq. 1).
 !
 !--------------------------------------------------------------------------------
-SUBROUTINE TDTS_Reflectivity(AtmOptics, GeometryInfo, Options, Height, P1, Z_ms)
+SUBROUTINE TDTS_Reflectivity(SensorIndex, AtmOptics, GeometryInfo, Options, Height, P1, Z_ms)
+  INTEGER,                           INTENT(IN)  :: SensorIndex
   TYPE(CRTM_AtmOptics_type),         INTENT(IN)  :: AtmOptics
   TYPE(CRTM_GeometryInfo_type),      INTENT(IN)  :: GeometryInfo
   TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN)  :: Options
@@ -1092,12 +1143,13 @@ SUBROUTINE TDTS_Reflectivity(AtmOptics, GeometryInfo, Options, Height, P1, Z_ms)
   REAL(fp), DIMENSION(AtmOptics%n_Layers) :: ext, w, g, bscat
 
   n = AtmOptics%n_Layers
-  CALL TDTS_Setup(AtmOptics, GeometryInfo, Options, Height, edge, ext, w, g, rho, cbe)
+  CALL TDTS_Setup(AtmOptics, GeometryInfo, SensorIndex, Options, Height, edge, ext, w, g, rho, cbe)
   CALL TDTS_Wide_Angle(n, edge, ext, w, g, rho, rho, cbe, bscat)
   Z_ms(1:n) = P1(1:n)*FOUR_PI*bscat
 END SUBROUTINE TDTS_Reflectivity
 
-SUBROUTINE TDTS_Reflectivity_TL(AtmOptics, AtmOptics_TL, GeometryInfo, Options, Height, P1, Z_ms, Z_ms_TL)
+SUBROUTINE TDTS_Reflectivity_TL(SensorIndex, AtmOptics, AtmOptics_TL, GeometryInfo, Options, Height, P1, Z_ms, Z_ms_TL)
+  INTEGER,                           INTENT(IN)  :: SensorIndex
   TYPE(CRTM_AtmOptics_type),         INTENT(IN)  :: AtmOptics, AtmOptics_TL
   TYPE(CRTM_GeometryInfo_type),      INTENT(IN)  :: GeometryInfo
   TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN)  :: Options
@@ -1109,7 +1161,7 @@ SUBROUTINE TDTS_Reflectivity_TL(AtmOptics, AtmOptics_TL, GeometryInfo, Options, 
   REAL(fp), DIMENSION(AtmOptics%n_Layers) :: ext, w, g, bscat, tau_TL, ext_TL, w_TL, g_TL, bscat_TL
 
   n = AtmOptics%n_Layers
-  CALL TDTS_Setup(AtmOptics, GeometryInfo, Options, Height, edge, ext, w, g, rho, cbe)
+  CALL TDTS_Setup(AtmOptics, GeometryInfo, SensorIndex, Options, Height, edge, ext, w, g, rho, cbe)
   CALL Unscaled_Optics_TL(AtmOptics, AtmOptics_TL, tau_TL, w_TL, g_TL)
   ext_TL = tau_TL/(Height(0:n-1) - Height(1:n))
   CALL TDTS_Wide_Angle_TL(n, edge, ext, w, g, rho, rho, cbe, ext_TL, w_TL, g_TL, bscat, bscat_TL)
@@ -1117,7 +1169,8 @@ SUBROUTINE TDTS_Reflectivity_TL(AtmOptics, AtmOptics_TL, GeometryInfo, Options, 
   Z_ms_TL(1:n) = P1(1:n)*FOUR_PI*bscat_TL
 END SUBROUTINE TDTS_Reflectivity_TL
 
-SUBROUTINE TDTS_Reflectivity_AD(AtmOptics, GeometryInfo, Options, Height, P1, Z_ms_AD, AtmOptics_AD)
+SUBROUTINE TDTS_Reflectivity_AD(SensorIndex, AtmOptics, GeometryInfo, Options, Height, P1, Z_ms_AD, AtmOptics_AD)
+  INTEGER,                           INTENT(IN)  :: SensorIndex
   TYPE(CRTM_AtmOptics_type),         INTENT(IN)     :: AtmOptics
   TYPE(CRTM_GeometryInfo_type),      INTENT(IN)     :: GeometryInfo
   TYPE(CRTM_Options_type), OPTIONAL, INTENT(IN)     :: Options
@@ -1129,7 +1182,7 @@ SUBROUTINE TDTS_Reflectivity_AD(AtmOptics, GeometryInfo, Options, Height, P1, Z_
   REAL(fp), DIMENSION(AtmOptics%n_Layers) :: ext, w, g, bscat_AD, ext_AD, w_AD, g_AD
 
   n = AtmOptics%n_Layers
-  CALL TDTS_Setup(AtmOptics, GeometryInfo, Options, Height, edge, ext, w, g, rho, cbe)
+  CALL TDTS_Setup(AtmOptics, GeometryInfo, SensorIndex, Options, Height, edge, ext, w, g, rho, cbe)
   bscat_AD = P1(1:n)*FOUR_PI*Z_ms_AD(1:n)
   ext_AD = ZERO; w_AD = ZERO; g_AD = ZERO
   CALL TDTS_Wide_Angle_AD(n, edge, ext, w, g, rho, rho, cbe, bscat_AD, ext_AD, w_AD, g_AD)

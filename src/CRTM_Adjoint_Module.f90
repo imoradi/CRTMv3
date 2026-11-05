@@ -134,7 +134,8 @@ MODULE CRTM_Adjoint_Module
   USE CRTM_CloudCover_Define,     ONLY: CRTM_CloudCover_type
   USE CRTM_Active_Sensor,         ONLY: CRTM_Compute_Reflectivity, &
                                         CRTM_Compute_Reflectivity_AD, &
-                                        Calculate_Cloud_Water_Density
+                                        Calculate_Cloud_Water_Density, &
+                                        Calculate_Cloud_Water_Density_AD
 
   ! Internal variable definition modules
   ! ...AtmOptics
@@ -1458,6 +1459,9 @@ CONTAINS
           RETURN
         END IF
       END IF
+
+      ! Adjoint of the water density calculation
+      CALL Calculate_Cloud_Water_Density_AD(Atm, Atm_AD)
 
       ! Adjoint of the atmosphere layer addition
       Error_Status = CRTM_Atmosphere_AddLayers_AD( Atmosphere(m), Atm_AD, Atmosphere_AD(m) )
