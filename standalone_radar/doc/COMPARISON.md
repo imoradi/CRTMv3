@@ -93,42 +93,43 @@ configurations: `test/test_radar_operator.f90`.
 
 The species are built from the NuRTM single-scattering databases
 (`ssdb_nurtm/mw`, converted from the ARTS DDA database) with
-`species_from_ssdb`, using the PSDs of the NuRTM validation runs:
+`species_from_ssdb`:
 
 | Species | Habit | PSD |
 | --- | --- | --- |
-| cloud liquid | LiquidSphere | gamma, N0 = 3e35, μ = 4, on d_veq |
-| cloud ice | IceSphere | gamma, N0 = 1e10, μ = 1, on d_max |
+| cloud liquid | LiquidSphere | gamma, N0 = 3e35, μ = 4, on d_veq (NuRTM validation default) |
+| cloud ice | IceSphere | Thompson 2008 ice: exponential, m = π/6·890 D³, Ni from Cooper (1986) capped at 250 L⁻¹, Thompson slope limits |
 | rain | LiquidSphere | Thompson 2008 rain (N0 = 8e6), on d_veq |
 | snow | 6BulletRosette | Thompson 2008 snow, Field et al. (2005) two-mode |
 
-As in NuRTM, the cross sections are interpolated linearly in frequency and
-temperature, the PSD is evaluated on the database sizes and renormalised to
-the database particle masses, and the asymmetry parameter comes from F11.
-TL, AD and K pass the same tests as the other paths (6 more cases).
+In this run CRTM and the table variants (A to D) also use the 6-bullet
+rosette for snow (`compare_crtm ... 6BulletRosette`), so the habit is the same
+everywhere. As in NuRTM, the cross sections are interpolated linearly in
+frequency and temperature, the PSD is evaluated on the database sizes and
+renormalised to the database particle masses, and the asymmetry parameter
+comes from F11. TL, AD and K pass the same tests as the other paths.
 
-Median Z on gates with only one species (all 60048 profiles):
+Median Z (dBZ) on gates with only one species, all 60048 profiles:
 
 | Species | Ku: CRTM / E | Ka: CRTM / E | W: CRTM / E |
 | --- | --- | --- | --- |
 | rain | 2.2 / 2.3 | 2.9 / 2.9 | 2.7 / 2.6 |
-| snow | −8.4 / −1.8 | −8.2 / −2.1 | −7.3 / −3.8 |
+| snow (6-bullet rosette in both) | −8.9 / −1.8 | −8.7 / −2.1 | −8.5 / −3.8 |
 | cloud liquid | (0) / −54 | (0) / −54 | (0) / −54 |
-| cloud ice | (0) / −0.1 | (0) / −0.1 | (0) / −2.0 |
+| cloud ice | (0) / −26 | (0) / −26 | (0) / −25 |
 
-* **Rain agrees with the CRTM table to 0.1 dB** at all three frequencies:
-  the CRTM DDA Thompson table and the NuRTM liquid spheres with the
-  Thompson rain PSD are the same physics.
-* **Snow is 3 to 6 dB higher** than CRTM. CRTM's table uses the
-  SectorSnowflake habit, which is not in the NuRTM database, and the
-  standalone run uses the 6-bullet rosette, as the NuRTM validation runs do.
-  The habit is the most likely cause.
-* **Cloud liquid** gives about −54 dBZ, realistic for the small water
-  contents in these gates.
-* **Cloud ice** with the gamma PSD (N0 = 1e10, μ = 1) gives about 0 dBZ for a
-  few mg m⁻³, which is high for cloud ice (typically −30 to −15 dBZ). That
-  PSD puts the mass in particles of a few hundred micrometres. A cloud-ice
-  PSD with more, smaller particles (or the number concentration from the
-  model) would be more realistic.
+* **Rain agrees with the CRTM table to 0.1 dB** at all three frequencies.
+* **Snow is 4 to 7 dB higher than CRTM even with the same habit**, so the
+  difference is in the PSD. The CRTM frozen tables have no temperature
+  dimension, so they were built for one PSD per water content, while the
+  Field (2005) PSD here uses the layer temperature. With the exponential
+  Thompson (2004) snow PSD the difference grows to 6 to 10 dB.
+* **Cloud liquid** gives about −54 dBZ, realistic for these small water
+  contents.
+* **Cloud ice** with the Thompson PSD gives a median of −26 dBZ (90th
+  percentile −8, 99th +7). The high tail is warm cloud ice: Cooper gives few
+  crystals near 0 °C, so the IFS ice mass goes into large particles even
+  with Thompson's 700 µm slope limit. A model with prognostic Ni can pass it
+  (`ni` argument) instead.
 * Full extinction (F) only changes the attenuation at W band (Zatt bias
-  −0.13 dB with truncation, −0.34 dB without).
+  −0.16 dB with truncation, −0.32 dB without).

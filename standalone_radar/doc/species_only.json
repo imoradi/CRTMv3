@@ -67,7 +67,7 @@
   "channel": "DPR Ku 13.6 GHz",
   "variant": "E",
   "n": 254588,
-  "z_median": -0.1390991508960724,
+  "z_median": -25.88531494140625,
   "crtm_median": null,
   "diff_mean": null
  },
@@ -85,7 +85,7 @@
   "channel": "DPR Ka 35.5 GHz",
   "variant": "E",
   "n": 254588,
-  "z_median": -0.11023317277431488,
+  "z_median": -25.651870727539062,
   "crtm_median": null,
   "diff_mean": null
  },
@@ -103,7 +103,7 @@
   "channel": "CPR 94.05 GHz",
   "variant": "E",
   "n": 254588,
-  "z_median": -1.9509859085083008,
+  "z_median": -24.71157455444336,
   "crtm_median": null,
   "diff_mean": null
  },
@@ -166,9 +166,9 @@
   "channel": "DPR Ku 13.6 GHz",
   "variant": "D",
   "n": 6078,
-  "z_median": -8.44217300415039,
-  "crtm_median": -8.44217300415039,
-  "diff_mean": 1.4960622252147004e-07
+  "z_median": -8.916498184204102,
+  "crtm_median": -8.916498184204102,
+  "diff_mean": 1.5107832496141782e-07
  },
  {
   "species": "snow",
@@ -176,17 +176,17 @@
   "variant": "E",
   "n": 6078,
   "z_median": -1.8064744472503662,
-  "crtm_median": -8.44217300415039,
-  "diff_mean": 6.37754487991333
+  "crtm_median": -8.916498184204102,
+  "diff_mean": 6.872150897979736
  },
  {
   "species": "snow",
   "channel": "DPR Ka 35.5 GHz",
   "variant": "D",
   "n": 6078,
-  "z_median": -8.160846710205078,
-  "crtm_median": -8.160846710205078,
-  "diff_mean": 2.234862392924697e-07
+  "z_median": -8.738378524780273,
+  "crtm_median": -8.738378524780273,
+  "diff_mean": 2.2736743687801209e-07
  },
  {
   "species": "snow",
@@ -194,17 +194,17 @@
   "variant": "E",
   "n": 6078,
   "z_median": -2.0707004070281982,
-  "crtm_median": -8.160846710205078,
-  "diff_mean": 5.403273105621338
+  "crtm_median": -8.738378524780273,
+  "diff_mean": 6.030146598815918
  },
  {
   "species": "snow",
   "channel": "CPR 94.05 GHz",
   "variant": "D",
   "n": 6078,
-  "z_median": -7.288138389587402,
-  "crtm_median": -7.2881388664245605,
-  "diff_mean": 3.671017623219086e-07
+  "z_median": -8.549661636352539,
+  "crtm_median": -8.549661636352539,
+  "diff_mean": 3.5886779414795456e-07
  },
  {
   "species": "snow",
@@ -212,7 +212,7 @@
   "variant": "E",
   "n": 6078,
   "z_median": -3.8119382858276367,
-  "crtm_median": -7.2881388664245605,
-  "diff_mean": 2.716869831085205
+  "crtm_median": -8.549661636352539,
+  "diff_mean": 4.1649980545043945
  }
 ]

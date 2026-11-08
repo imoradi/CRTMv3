@@ -139,7 +139,7 @@ CONTAINS
                                  PSD_T08_RAIN, size_param='d_veq')
         CASE (3)
           CALL species_from_ssdb(sp, 'cloud_ice', TRIM(ssdb_dir)//'/IceSphere.nc', c%frequency, &
-                                 PSD_GAMMA, n0=1.0e10_fp, mu=1.0_fp)
+                                 PSD_T08_ICE)
         CASE (4)
           CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', c%frequency, &
                                  PSD_T08_SNOW_FIELD05)

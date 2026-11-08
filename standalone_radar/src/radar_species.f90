@@ -38,7 +38,7 @@ MODULE radar_species
   PUBLIC :: radar_species_type
   PUBLIC :: SOURCE_NONE, SOURCE_LUT, SOURCE_PARTICLE
   PUBLIC :: PHASE_LIQUID, PHASE_FROZEN
-  PUBLIC :: PSD_GAMMA_FIXED_N0, PSD_GAMMA, PSD_T08_RAIN, PSD_T08_SNOW, PSD_T08_SNOW_FIELD05, PSD_T08_GRAUPEL
+  PUBLIC :: PSD_GAMMA_FIXED_N0, PSD_GAMMA, PSD_T08_RAIN, PSD_T08_SNOW, PSD_T08_SNOW_FIELD05, PSD_T08_GRAUPEL, PSD_T08_ICE
   PUBLIC :: species_from_ssdb
   PUBLIC :: N_OPT, I_EXT, I_SCA, I_BSC, I_FSCA, I_GSCA, I_ATT
   PUBLIC :: species_from_lut
@@ -59,7 +59,7 @@ MODULE radar_species
   !                       T04 temperature-dependent intercept, or the two-mode
   !                       Field et al. 2005 form) and graupel, as NuRTM
   INTEGER, PARAMETER :: PSD_GAMMA_FIXED_N0 = 1, PSD_GAMMA = 2
-  INTEGER, PARAMETER :: PSD_T08_RAIN = 3, PSD_T08_SNOW = 4, PSD_T08_SNOW_FIELD05 = 5, PSD_T08_GRAUPEL = 6
+  INTEGER, PARAMETER :: PSD_T08_RAIN = 3, PSD_T08_SNOW = 4, PSD_T08_SNOW_FIELD05 = 5, PSD_T08_GRAUPEL = 6, PSD_T08_ICE = 7
   ! Field et al. (2005) moment relation coefficients (WRF module_mp_thompson sa, sb)
   REAL(fp), PARAMETER :: F05_SA(10) = [5.065339_fp, -0.062659_fp, -3.032362_fp, 0.029469_fp, -0.000285_fp, &
                                        0.31255_fp, 0.000204_fp, 0.003199_fp, 0.0_fp, -0.015952_fp]
@@ -106,6 +106,8 @@ MODULE radar_species
     REAL(fp) :: mu = ZERO
     REAL(fp) :: a_ms = ZERO, b_ms = 3.0_fp ! mass-size relation m = a D^b (PSD_GAMMA)
     REAL(fp) :: rho_air = 1.225_fp         ! graupel intercept (PSD_T08_GRAUPEL)
+    REAL(fp) :: ni_fixed = ZERO            ! PSD_T08_ICE: >0 fixed number concentration (m-3),
+                                           ! otherwise Cooper (1986) from temperature
     REAL(fp) :: t_fix = ZERO               ! >0: fixed temperature for the T08 snow PSD (K)
     INTEGER  :: n_streams = 4
     INTEGER  :: ntp = 1                    ! temperatures of the cross sections
@@ -362,17 +364,18 @@ CONTAINS
   !   The asymmetry parameter is computed from F11.
   !
   !   psd_type   PSD_GAMMA (n0, mu), PSD_T08_RAIN, PSD_T08_SNOW,
-  !              PSD_T08_SNOW_FIELD05, PSD_T08_GRAUPEL, or PSD_GAMMA_FIXED_N0
+  !              PSD_T08_SNOW_FIELD05, PSD_T08_GRAUPEL, PSD_T08_ICE (ni: fixed number
+  !              concentration in m-3, default Cooper 1986), or PSD_GAMMA_FIXED_N0
   !   size_param 'd_max' (default) or 'd_veq': the size the PSD is defined on
   !   phase      default: liquid when the temperature grid goes above 273.15 K
   !
   SUBROUTINE species_from_ssdb(sp, name, filename, frequency, psd_type, n0, mu, size_param, &
-                               n_streams, phase, approx_kind, rho_air, t_fix)
+                               n_streams, phase, approx_kind, rho_air, t_fix, ni)
     TYPE(radar_species_type), INTENT(OUT) :: sp
     CHARACTER(*),             INTENT(IN)  :: name, filename
     REAL(fp),                 INTENT(IN)  :: frequency
     INTEGER,                  INTENT(IN)  :: psd_type
-    REAL(fp),       OPTIONAL, INTENT(IN)  :: n0, mu, rho_air, t_fix
+    REAL(fp),       OPTIONAL, INTENT(IN)  :: n0, mu, rho_air, t_fix, ni
     CHARACTER(*),   OPTIONAL, INTENT(IN)  :: size_param
     INTEGER,        OPTIONAL, INTENT(IN)  :: n_streams, phase, approx_kind
     INTEGER :: ncid, varid, dimid, nf, nt, nd, na, i1, i2, k, j, ia, st
@@ -391,6 +394,7 @@ CONTAINS
     sp%mu = mu_
     IF (PRESENT(rho_air)) sp%rho_air = rho_air
     IF (PRESENT(t_fix)) sp%t_fix = t_fix
+    IF (PRESENT(ni)) sp%ni_fixed = ni
     IF (PRESENT(n_streams)) sp%n_streams = n_streams
     sp%rayleigh_only = .FALSE.
 
@@ -696,6 +700,23 @@ CONTAINS
       END IF
       lamc = (n0*am*GAMMA(bm + 1)/rho)**(1/(bm + 1))
       n = n0*EXP(-lamc*sp%d)
+    CASE (PSD_T08_ICE)
+      ! Thompson et al. (2008) cloud ice: exponential in D (mu = 0) with
+      ! m(D) = pi/6 * 890 D^3. Ni is prognostic in Thompson; here it is fixed or
+      ! diagnosed with Cooper (1986), Ni = 5 exp(0.304 (273.15 - T)) m-3,
+      ! limited to 250 L-1 as in the Thompson ice nucleation. The slope is held
+      ! within the Thompson limits and the PSD renormalised to the water content.
+      IF (sp%ni_fixed > ZERO) THEN
+        n0 = sp%ni_fixed
+      ELSE
+        n0 = cmin(CMPLX(250.0e3_fp, ZERO, fp), 5.0_fp*EXP(0.304_fp*(273.15_fp - cmin(tk, CMPLX(273.15_fp, ZERO, fp)))))
+      END IF
+      am = PI/6*890.0_fp
+      lamc = (am*n0*GAMMA(4.0_fp)/rho)**(1.0_fp/3.0_fp)
+      ! Thompson limits on the ice slope: 1/(2 D0i + 100 um) <= lambda <= 1/1 um, D0i = 300 um
+      IF (REAL(lamc) < 1.0_fp/(2*300.0e-6_fp + 100.0e-6_fp)) lamc = 1.0_fp/(2*300.0e-6_fp + 100.0e-6_fp)
+      IF (REAL(lamc) > 1.0e6_fp) lamc = 1.0e6_fp
+      n = EXP(-lamc*sp%d)
     CASE (PSD_T08_SNOW_FIELD05)
       tc = cmin(CMPLX(-0.1_fp, ZERO, fp), tk - 273.15_fp)
       m2 = rho/0.069_fp

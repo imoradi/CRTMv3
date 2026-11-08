@@ -4,7 +4,8 @@
 ! Runs the CRTM active-sensor operator and the standalone radar operator on
 ! the same IFS profiles and writes both to a netCDF file.
 !
-! Usage: compare_crtm ifs.nc stride zenith_deg out.nc coef_dir/ cloudcoeff_dir/ cloudcoeff_file n_jac nurtm_ssdb_dir
+! Usage: compare_crtm ifs.nc stride zenith_deg out.nc coef_dir/ cloudcoeff_dir/ cloudcoeff_file n_jac nurtm_ssdb_dir [snow_habit]
+!   snow_habit: e.g. 6BulletRosette (CRTM and LUT variants); default CRTM SNOW_CLOUD (SectorSnowflake)
 !
 ! Standalone variants (per channel):
 !   A  CRTM-compatible settings, gas optical depth taken from CRTM (ODPS)
@@ -28,7 +29,7 @@ PROGRAM compare_crtm
   USE radar_kinds,    ONLY: rfp => fp
   USE radar_gas,      ONLY: GAS_MODEL_ITU_LBL, GAS_MODEL_ITU_APPROX, GAS_MODEL_USER
   USE radar_species,  ONLY: radar_species_type, species_from_lut, species_from_ssdb, &
-                            PSD_GAMMA, PSD_T08_RAIN, PSD_T08_SNOW_FIELD05
+                            PSD_GAMMA, PSD_T08_RAIN, PSD_T08_SNOW_FIELD05, PSD_T08_ICE, PSD_T08_SNOW
   USE radar_operator
   USE netcdf
   IMPLICIT NONE
@@ -36,7 +37,8 @@ PROGRAM compare_crtm
   INTEGER, PARAMETER :: NV = 6      ! standalone variants
   INTEGER, PARAMETER :: NSP = 4     ! species: cloud liquid, cloud ice, rain, snow
   CHARACTER(16), PARAMETER :: SPNAME(NSP) = [CHARACTER(16) :: 'cloud_liquid', 'cloud_ice', 'rain', 'snow']
-  INTEGER, PARAMETER :: CTYPE(NSP) = [WATER_CLOUD, ICE_CLOUD, RAIN_CLOUD, SNOW_CLOUD]
+  INTEGER :: CTYPE(NSP) = [WATER_CLOUD, ICE_CLOUD, RAIN_CLOUD, SNOW_CLOUD]
+  CHARACTER(32) :: snow_habit = ''
   REAL(fp), PARAMETER :: G0 = 9.80665_fp
   INTEGER, PARAMETER :: CHUNK = 200
 
@@ -67,6 +69,9 @@ PROGRAM compare_crtm
   CALL GET_COMMAND_ARGUMENT(8, arg)
   IF (LEN_TRIM(arg) > 0) READ(arg,*) n_jac
   CALL GET_COMMAND_ARGUMENT(9, ssdb_dir)
+  ! Optional snow habit for CRTM and the LUT variants (default: CRTM SNOW_CLOUD = SectorSnowflake)
+  CALL GET_COMMAND_ARGUMENT(10, snow_habit)
+  IF (TRIM(snow_habit) == '6BulletRosette') CTYPE(4) = SixBulletRosette
 
   ! ---------------------------------------------------------------- read IFS
   CALL chk(nf90_open(ifs_file, NF90_NOWRITE, ncid))
@@ -157,16 +162,27 @@ CONTAINS
                                  PSD_GAMMA, n0=3.0e35_fp, mu=4.0_fp, size_param='d_veq')
         CASE (2)
           CALL species_from_ssdb(sp, 'cloud_ice', TRIM(ssdb_dir)//'/IceSphere.nc', f, &
-                                 PSD_GAMMA, n0=1.0e10_fp, mu=1.0_fp)
+                                 PSD_T08_ICE)
         CASE (3)
           CALL species_from_ssdb(sp, 'rain', TRIM(ssdb_dir)//'/LiquidSphere.nc', f, &
                                  PSD_T08_RAIN, size_param='d_veq')
         CASE (4)
-          CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, &
-                                 PSD_T08_SNOW_FIELD05)
+          ! RADAR_SNOW_PSD=exponential selects the Thompson (2004) exponential snow PSD
+          CALL GET_ENVIRONMENT_VARIABLE('RADAR_SNOW_PSD', arg)
+          IF (TRIM(arg) == 'exponential') THEN
+            CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, PSD_T08_SNOW)
+          ELSE
+            CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, &
+                                   PSD_T08_SNOW_FIELD05)
+          END IF
         END SELECT
       ELSE
-        CALL species_from_lut(sp, TRIM(SPNAME(s)), TRIM(cc_dir)//TRIM(cc_file), f, c%n_streams)
+        IF (s == 4 .AND. LEN_TRIM(snow_habit) > 0) THEN
+          CALL species_from_lut(sp, TRIM(SPNAME(s)), TRIM(cc_dir)//TRIM(cc_file), f, c%n_streams, &
+                                habit=TRIM(snow_habit))
+        ELSE
+          CALL species_from_lut(sp, TRIM(SPNAME(s)), TRIM(cc_dir)//TRIM(cc_file), f, c%n_streams)
+        END IF
       END IF
       CALL radar_add_species(op, s, sp)
     END DO

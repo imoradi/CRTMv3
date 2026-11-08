@@ -136,7 +136,8 @@ cross sections are interpolated to the radar frequency and kept on the
 database temperature grid. PSD choices, as in NuRTM:
 `PSD_GAMMA` (n0, mu, mass-size fit to the database), `PSD_T08_RAIN`,
 `PSD_T08_SNOW` (exponential, Thompson 2004 intercept), `PSD_T08_SNOW_FIELD05`
-(two-mode Field et al. 2005, the Thompson 2008 snow), `PSD_T08_GRAUPEL`, and
+(two-mode Field et al. 2005, the Thompson 2008 snow), `PSD_T08_GRAUPEL`,
+`PSD_T08_ICE` (Thompson cloud ice; `ni` fixed, or Cooper 1986 from temperature), and
 `PSD_GAMMA_FIXED_N0`. The PSD is renormalised to the database particle masses.
 
 ```fortran
