@@ -40,7 +40,7 @@ MODULE radar_species
   PUBLIC :: PHASE_LIQUID, PHASE_FROZEN
   PUBLIC :: PSD_GAMMA_FIXED_N0, PSD_GAMMA, PSD_T08_RAIN, PSD_T08_SNOW, PSD_T08_SNOW_FIELD05, PSD_T08_GRAUPEL, PSD_T08_ICE, &
             PSD_F07_MIDLAT, PSD_F07_TROPICAL
-  PUBLIC :: species_from_ssdb
+  PUBLIC :: species_from_ssdb, species_default_ssdb
   PUBLIC :: N_OPT, I_EXT, I_SCA, I_BSC, I_FSCA, I_GSCA, I_ATT
   PUBLIC :: species_from_lut
   PUBLIC :: species_from_particles
@@ -337,6 +337,54 @@ CONTAINS
     sp%cext(:,1) = cext; sp%csca(:,1) = csca; sp%cbsc(:,1) = cbsc; sp%asym(:,1) = asym
     CALL bin_widths(d, sp%dd)
   END SUBROUTINE species_from_particles
+
+  !
+  ! species_default_ssdb
+  !   The recommended species set built from the NuRTM single-scattering
+  !   databases in ssdb_dir, all temperature dependent:
+  !     cloud_liquid  LiquidSphere    gamma N0 = 3e35, mu = 4 (d_veq)
+  !     rain          LiquidSphere    Thompson (2008) rain (d_veq)
+  !     cloud_ice     IceSphere       Thompson (2008) ice, Ni from Cooper (1986)
+  !     snow          6BulletRosette  Field et al. (2007) mid-latitude, layer T
+  !     graupel       GemGraupel      Field et al. (2007) mid-latitude, layer T
+  !     hail          GemHail         Field et al. (2007) mid-latitude, layer T
+  !   The cross sections are interpolated in temperature for every species
+  !   (database grids: 230-310 K liquid, 190-270 K ice); the frozen PSDs use
+  !   the layer temperature (Field 2007 held within -70 to -0.1 C).
+  !
+  SUBROUTINE species_default_ssdb(sp, name, ssdb_dir, frequency, n_streams)
+    TYPE(radar_species_type), INTENT(OUT) :: sp
+    CHARACTER(*),             INTENT(IN)  :: name, ssdb_dir
+    REAL(fp),                 INTENT(IN)  :: frequency
+    INTEGER,        OPTIONAL, INTENT(IN)  :: n_streams
+    INTEGER :: ns
+    ns = 4
+    IF (PRESENT(n_streams)) ns = n_streams
+    SELECT CASE (TRIM(name))
+    CASE ('cloud_liquid')
+      CALL species_from_ssdb(sp, name, TRIM(ssdb_dir)//'/LiquidSphere.nc', frequency, PSD_GAMMA, &
+                             n0=3.0e35_fp, mu=4.0_fp, size_param='d_veq', n_streams=ns, &
+                             approx_kind=APPROX_CLOUD_LIQUID)
+    CASE ('rain')
+      CALL species_from_ssdb(sp, name, TRIM(ssdb_dir)//'/LiquidSphere.nc', frequency, PSD_T08_RAIN, &
+                             size_param='d_veq', n_streams=ns, approx_kind=APPROX_RAIN)
+    CASE ('cloud_ice')
+      CALL species_from_ssdb(sp, name, TRIM(ssdb_dir)//'/IceSphere.nc', frequency, PSD_T08_ICE, &
+                             n_streams=ns)
+    CASE ('snow')
+      CALL species_from_ssdb(sp, name, TRIM(ssdb_dir)//'/6BulletRosette.nc', frequency, PSD_F07_MIDLAT, &
+                             n_streams=ns)
+    CASE ('graupel')
+      CALL species_from_ssdb(sp, name, TRIM(ssdb_dir)//'/GemGraupel.nc', frequency, PSD_F07_MIDLAT, &
+                             n_streams=ns)
+    CASE ('hail')
+      CALL species_from_ssdb(sp, name, TRIM(ssdb_dir)//'/GemHail.nc', frequency, PSD_F07_MIDLAT, &
+                             n_streams=ns)
+    CASE DEFAULT
+      WRITE(*,'(a)') 'species_default_ssdb: unknown species '//TRIM(name)
+      ERROR STOP 1
+    END SELECT
+  END SUBROUTINE species_default_ssdb
 
   ! Trapezoid bin widths for sorted sizes
   SUBROUTINE bin_widths(d, dd)

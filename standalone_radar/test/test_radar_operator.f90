@@ -18,7 +18,7 @@ PROGRAM test_radar_operator
   USE radar_operator
   IMPLICIT NONE
   CHARACTER(512) :: lut, ssdb_dir
-  LOGICAL :: use_ssdb = .FALSE., ssdb_f07 = .FALSE.
+  LOGICAL :: use_ssdb = .FALSE., ssdb_alt = .FALSE.
   INTEGER, PARAMETER :: NL = 50, NS = 5
   TYPE(radar_operator_type) :: op
   TYPE(radar_config_type)   :: cfg
@@ -59,11 +59,11 @@ PROGRAM test_radar_operator
       use_ssdb = .TRUE.
       cfg = radar_config_type(); cfg%frequency = freqs(ifreq)
       cfg%scaling = SCALING_NONE; cfg%crtm_compat = .FALSE.
-      CALL run_case('NuRTM DDA particles, Thompson 2008 PSD', cfg, .FALSE.)
+      CALL run_case('NuRTM particles, default T-dependent PSDs', cfg, .FALSE.)
       cfg%platform = PLATFORM_GROUND; prof%zenith = 20.0_fp
-      ssdb_f07 = .TRUE.
-      CALL run_case('NuRTM DDA particles, ground-based, F07 snow', cfg, .FALSE.)
-      ssdb_f07 = .FALSE.
+      ssdb_alt = .TRUE.
+      CALL run_case('NuRTM particles, ground, Thompson PSDs', cfg, .FALSE.)
+      ssdb_alt = .FALSE.
       prof%zenith = 0.0_fp
       use_ssdb = .FALSE.
     END IF
@@ -131,7 +131,10 @@ CONTAINS
     INTEGER :: i
     CALL radar_init(op, c, NS)
     DO i = 1, NS
-      IF (use_ssdb) THEN
+      IF (use_ssdb .AND. .NOT. ssdb_alt) THEN
+        CALL species_default_ssdb(sp, TRIM(names(i)), TRIM(ssdb_dir), c%frequency)
+      ELSE IF (use_ssdb) THEN
+        ! alternative PSDs: Thompson 2008 snow (Field 2005) and graupel, gamma cloud ice
         SELECT CASE (i)
         CASE (1)
           CALL species_from_ssdb(sp, 'cloud_liquid', TRIM(ssdb_dir)//'/LiquidSphere.nc', c%frequency, &
@@ -141,15 +144,10 @@ CONTAINS
                                  PSD_T08_RAIN, size_param='d_veq')
         CASE (3)
           CALL species_from_ssdb(sp, 'cloud_ice', TRIM(ssdb_dir)//'/IceSphere.nc', c%frequency, &
-                                 PSD_T08_ICE)
+                                 PSD_GAMMA, n0=1.0e10_fp, mu=1.0_fp)
         CASE (4)
-          IF (ssdb_f07) THEN
-            CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', c%frequency, &
-                                   PSD_F07_MIDLAT)
-          ELSE
-            CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', c%frequency, &
-                                   PSD_T08_SNOW_FIELD05)
-          END IF
+          CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', c%frequency, &
+                                 PSD_T08_SNOW_FIELD05)
         CASE (5)
           CALL species_from_ssdb(sp, 'graupel', TRIM(ssdb_dir)//'/GemGraupel.nc', c%frequency, &
                                  PSD_T08_GRAUPEL)

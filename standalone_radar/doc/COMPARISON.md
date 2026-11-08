@@ -17,7 +17,7 @@ layers, no extra layers. Driver: `compare/compare_crtm.f90`; analysis:
 | B | ITU-R P.676 line by line | full, delta-truncated | yes |
 | C | ITU-R P.676 approximation | approximate formulas | yes |
 | D | ITU-R P.676 line by line | full extinction, no truncation | no (cloud backscatter on) |
-| E | ITU-R P.676 line by line | NuRTM DDA single particles + Thompson (2008) PSDs, delta-truncated | n/a |
+| E | ITU-R P.676 line by line | NuRTM DDA single particles, temperature-dependent default PSDs (`species_default_ssdb`), delta-truncated | n/a |
 | F | ITU-R P.676 line by line | as E, full extinction | n/a |
 
 ## Reflectivity (1.34 million gates with echo per channel)
@@ -87,9 +87,10 @@ those layers).
 
 The standalone TL, AD and K also pass their own tests (TL against finite
 differences to 1e-8, AD against TL to 1e-15, K against TL to 1e-16) in 24
-configurations: `test/test_radar_operator.f90`.
+configurations: `test/test_radar_operator.f90` (30 cases including the
+particle paths).
 
-## Single particles from NuRTM with Thompson (2008) PSDs (variants E, F)
+## Single particles from NuRTM with temperature-dependent PSDs (variants E, F)
 
 The species are built from the NuRTM single-scattering databases
 (`ssdb_nurtm/mw`, converted from the ARTS DDA database) with
@@ -100,7 +101,11 @@ The species are built from the NuRTM single-scattering databases
 | cloud liquid | LiquidSphere | gamma, N0 = 3e35, μ = 4, on d_veq (NuRTM validation default) |
 | cloud ice | IceSphere | Thompson 2008 ice: exponential, m = π/6·890 D³, Ni from Cooper (1986) capped at 250 L⁻¹, Thompson slope limits |
 | rain | LiquidSphere | Thompson 2008 rain (N0 = 8e6), on d_veq |
-| snow | 6BulletRosette | Thompson 2008 snow, Field et al. (2005) two-mode |
+| snow | 6BulletRosette | Field et al. (2007) mid-latitude at the layer temperature |
+| graupel, hail (not in the IFS file) | GemGraupel, GemHail | Field et al. (2007) mid-latitude at the layer temperature |
+
+All cross sections are interpolated to the layer temperature, so all six
+species depend on temperature; the frozen PSDs do as well.
 
 In this run CRTM and the table variants (A to D) also use the 6-bullet
 rosette for snow (`compare_crtm ... 6BulletRosette`), so the habit is the same
@@ -114,13 +119,14 @@ Median Z (dBZ) on gates with only one species, all 60048 profiles:
 | Species | Ku: CRTM / E | Ka: CRTM / E | W: CRTM / E |
 | --- | --- | --- | --- |
 | rain | 2.2 / 2.3 | 2.9 / 2.9 | 2.7 / 2.6 |
-| snow (6-bullet rosette in both) | −8.9 / −1.8 | −8.7 / −2.1 | −8.5 / −3.8 |
+| snow (6-bullet rosette in both) | −8.9 / −1.0 | −8.7 / −1.2 | −8.5 / −3.1 |
 | cloud liquid | (0) / −54 | (0) / −54 | (0) / −54 |
 | cloud ice | (0) / −26 | (0) / −26 | (0) / −25 |
 
 * **Rain agrees with the CRTM table to 0.1 dB** at all three frequencies.
-* **Snow is 4 to 7 dB higher than CRTM even with the same habit**, so the
-  difference is in the PSD. The scripts that built the CRTM DDA table
+* **Snow is 5 to 8 dB higher than CRTM even with the same habit** (mean
+  +7.7, +7.2, +5.2 dB), so the difference is in the PSD. (With the Thompson
+  Field05 snow PSD used earlier it was 4 to 7 dB.) The scripts that built the CRTM DDA table
   (pyWeather `dda/gen_dda_coef`) use Thompson 2008 only for liquid (cloud
   water and rain). All frozen habits use the Field et al. (2007)
   mid-latitude PSD at a fixed 235 K, with the habit mass-size relation.
@@ -130,7 +136,7 @@ Median Z (dBZ) on gates with only one species, all 60048 profiles:
   with the mass-size relation (database masses here, the ARTS α, β fit in
   the table) and the temperature of the cross sections.
 * **Fixed 235 K vs layer temperature for the Field (2007) snow PSD**
-  (`RADAR_SNOW_PSD=f07m` vs `f07m_235`, all 60048 profiles). Using the layer
+  (default vs `RADAR_SNOW_PSD=f07m_235`, all 60048 profiles). Using the layer
   temperature raises snow Z by 7.3 dB at Ku, 6.8 dB at Ka and 4.9 dB at W on
   snow-only gates, and the change grows with temperature:
 
@@ -147,7 +153,7 @@ Median Z (dBZ) on gates with only one species, all 60048 profiles:
   surface changes little at Ku and Ka (at most 2.4 dB), but at W it goes up
   by 0.3 dB on average and by up to 34 dB in heavy snow. So the fixed 235 K
   in the CRTM tables makes snow several dB too weak at the temperatures
-  where most snow is.
+  where most snow is. The layer-temperature PSD is therefore the default.
 * **Cloud liquid** gives about −54 dBZ, realistic for these small water
   contents.
 * **Cloud ice** with the Thompson PSD gives a median of −26 dBZ (90th
@@ -155,5 +161,10 @@ Median Z (dBZ) on gates with only one species, all 60048 profiles:
   crystals near 0 °C, so the IFS ice mass goes into large particles even
   with Thompson's 700 µm slope limit. A model with prognostic Ni can pass it
   (`ni` argument) instead.
-* Full extinction (F) only changes the attenuation at W band (Zatt bias
-  −0.16 dB with truncation, −0.32 dB without).
+* Surface two-way PIA, E vs B: means are nearly the same (W 5.49 vs 5.47 dB);
+  the 1st to 99th percentile of the difference is −0.1 to +0.4 dB at Ka and
+  −1.7 to +6.1 dB at W, and the W-band maximum rises from 183 to 200 dB.
+* Full extinction (F) instead of truncation changes the surface PIA by at
+  most 0.2 dB at Ka and 14.7 dB at W (mean 0.06 dB).
+
+See [TECHNICAL_NOTE.md](TECHNICAL_NOTE.md) for the full write-up.

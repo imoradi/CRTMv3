@@ -12,7 +12,9 @@
 !   B  CRTM-compatible settings, gas from ITU-R P.676 line-by-line
 !   C  approximate attenuation (ITU-R P.676 approx gas, P.838/P.840 hydrometeors)
 !   D  physical: full (unscaled) extinction, cloud backscatter included, ITU LBL gas
-!   E  NuRTM DDA single particles + Thompson (2008) PSDs, delta scaling, ITU LBL gas
+!   E  NuRTM DDA single particles with the default temperature-dependent PSDs
+!      (species_default_ssdb), delta scaling, ITU LBL gas.
+!      RADAR_SNOW_PSD=f07m_235 | t08_field05 | exponential replaces the snow PSD
 !   F  as E with full (unscaled) extinction
 !
 PROGRAM compare_crtm
@@ -28,7 +30,7 @@ PROGRAM compare_crtm
   USE CRTM_AncillaryInput_Define, ONLY: CRTM_AncillaryInput_type
   USE radar_kinds,    ONLY: rfp => fp
   USE radar_gas,      ONLY: GAS_MODEL_ITU_LBL, GAS_MODEL_ITU_APPROX, GAS_MODEL_USER
-  USE radar_species,  ONLY: radar_species_type, species_from_lut, species_from_ssdb, &
+  USE radar_species,  ONLY: radar_species_type, species_from_lut, species_from_ssdb, species_default_ssdb, &
                             PSD_GAMMA, PSD_T08_RAIN, PSD_T08_SNOW_FIELD05, PSD_T08_ICE, PSD_T08_SNOW, PSD_F07_MIDLAT
   USE radar_operator
   USE netcdf
@@ -155,36 +157,19 @@ CONTAINS
     CALL radar_init(op, c, NSP)
     DO s = 1, NSP
       IF (iv >= 5) THEN
-        ! NuRTM single-particle databases with the PSDs of the NuRTM validation runs
-        SELECT CASE (s)
-        CASE (1)
-          CALL species_from_ssdb(sp, 'cloud_liquid', TRIM(ssdb_dir)//'/LiquidSphere.nc', f, &
-                                 PSD_GAMMA, n0=3.0e35_fp, mu=4.0_fp, size_param='d_veq')
-        CASE (2)
-          CALL species_from_ssdb(sp, 'cloud_ice', TRIM(ssdb_dir)//'/IceSphere.nc', f, &
-                                 PSD_T08_ICE)
-        CASE (3)
-          CALL species_from_ssdb(sp, 'rain', TRIM(ssdb_dir)//'/LiquidSphere.nc', f, &
-                                 PSD_T08_RAIN, size_param='d_veq')
-        CASE (4)
-          ! RADAR_SNOW_PSD=exponential: Thompson (2004) exponential snow PSD;
-          ! RADAR_SNOW_PSD=f07m_235: Field (2007) mid-latitude at 235 K (CRTM DDA table PSD);
-          ! RADAR_SNOW_PSD=f07m: Field (2007) mid-latitude at the layer temperature
-          CALL GET_ENVIRONMENT_VARIABLE('RADAR_SNOW_PSD', arg)
-          IF (TRIM(arg) == 'exponential') THEN
-            CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, PSD_T08_SNOW)
-          ELSE IF (TRIM(arg) == 'f07m') THEN
-            ! Field 2007 mid-latitude at the layer temperature
-            CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, PSD_F07_MIDLAT)
-          ELSE IF (TRIM(arg) == 'f07m_235') THEN
-            ! the PSD the CRTM DDA tables were built with (Field 2007 mid-latitude, 235 K)
-            CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, PSD_F07_MIDLAT, &
-                                   t_fix=235.0_fp)
-          ELSE
-            CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, &
-                                   PSD_T08_SNOW_FIELD05)
-          END IF
-        END SELECT
+        ! NuRTM single-particle databases with the default temperature-dependent PSDs
+        CALL GET_ENVIRONMENT_VARIABLE('RADAR_SNOW_PSD', arg)
+        IF (s == 4 .AND. TRIM(arg) == 'f07m_235') THEN
+          ! the PSD the CRTM DDA tables were built with (Field 2007 mid-latitude, 235 K)
+          CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, PSD_F07_MIDLAT, &
+                                 t_fix=235.0_fp)
+        ELSE IF (s == 4 .AND. TRIM(arg) == 't08_field05') THEN
+          CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, PSD_T08_SNOW_FIELD05)
+        ELSE IF (s == 4 .AND. TRIM(arg) == 'exponential') THEN
+          CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, PSD_T08_SNOW)
+        ELSE
+          CALL species_default_ssdb(sp, TRIM(SPNAME(s)), TRIM(ssdb_dir), f)
+        END IF
       ELSE
         IF (s == 4 .AND. LEN_TRIM(snow_habit) > 0) THEN
           CALL species_from_lut(sp, TRIM(SPNAME(s)), TRIM(cc_dir)//TRIM(cc_file), f, c%n_streams, &
@@ -353,7 +338,7 @@ CONTAINS
          'A: CRTM-compatible, CRTM gas OD; B: CRTM-compatible, ITU-R P.676 LBL gas; '// &
          'C: approximate gas (P.676 Annex 2) and hydrometeor (P.838/P.840) attenuation; '// &
          'D: unscaled extinction, cloud backscatter on, LBL gas; '// &
-         'E: NuRTM DDA particles + Thompson 2008 PSD, delta scaling, LBL gas; F: as E, unscaled extinction'))
+         'E: NuRTM DDA particles, T-dependent default PSDs, delta scaling, LBL gas; F: as E, unscaled extinction'))
     CALL chk(nf90_put_att(id, NF90_GLOBAL, 'zenith_deg', zenith))
     CALL chk(nf90_enddef(id))
     CALL chk(nf90_put_var(id, v(1), freq)); CALL chk(nf90_put_var(id, v(2), sel))

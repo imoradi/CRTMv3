@@ -175,9 +175,9 @@
   "channel": "DPR Ku 13.6 GHz",
   "variant": "E",
   "n": 6078,
-  "z_median": -1.8064744472503662,
+  "z_median": -0.9512037038803101,
   "crtm_median": -8.916498184204102,
-  "diff_mean": 6.872150897979736
+  "diff_mean": 7.745767116546631
  },
  {
   "species": "snow",
@@ -193,9 +193,9 @@
   "channel": "DPR Ka 35.5 GHz",
   "variant": "E",
   "n": 6078,
-  "z_median": -2.0707004070281982,
+  "z_median": -1.2206310033798218,
   "crtm_median": -8.738378524780273,
-  "diff_mean": 6.030146598815918
+  "diff_mean": 7.209806442260742
  },
  {
   "species": "snow",
@@ -211,8 +211,8 @@
   "channel": "CPR 94.05 GHz",
   "variant": "E",
   "n": 6078,
-  "z_median": -3.8119382858276367,
+  "z_median": -3.1362457275390625,
   "crtm_median": -8.549661636352539,
-  "diff_mean": 4.1649980545043945
+  "diff_mean": 5.218353748321533
  }
 ]

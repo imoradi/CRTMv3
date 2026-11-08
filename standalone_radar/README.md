@@ -27,8 +27,8 @@ make
 ```
 
 The test checks the TL against finite differences, the AD against the TL
-(dot product test) and the K-matrix against the TL for 8 configurations at
-13.6, 35.5 and 94 GHz.
+(dot product test) and the K-matrix against the TL for 10 configurations (8 with the CRTM table, 2 with
+NuRTM particles) at 13.6, 35.5 and 94 GHz.
 
 ## Source files
 
@@ -82,6 +82,31 @@ Outputs per layer (range gate):
 To attenuate for another zenith angle θ without rerunning:
 `zatt_lin = z_lin * exp(-2 * tau_cum / cos θ)`. For a ground radar give
 `zenith = 90 - elevation`. Missing dBZ (Z = 0) is -9999, as in CRTM.
+
+### Particle-based defaults
+
+`radar_simple_init_ssdb` builds the species from the NuRTM single-scattering
+databases instead of the CRTM table, with temperature-dependent cross
+sections for all species and temperature-dependent PSDs for the frozen ones
+(`species_default_ssdb`):
+
+| Species | Database | PSD |
+| --- | --- | --- |
+| `cloud_liquid` | LiquidSphere | gamma, N0 = 3e35, mu = 4 |
+| `rain` | LiquidSphere | Thompson 2008 rain |
+| `cloud_ice` | IceSphere | Thompson 2008 ice (Cooper Ni) |
+| `snow` | 6BulletRosette | Field 2007 mid-latitude at the layer temperature |
+| `graupel` | GemGraupel | Field 2007 mid-latitude at the layer temperature |
+| `hail` | GemHail | Field 2007 mid-latitude at the layer temperature |
+
+```fortran
+call radar_simple_init_ssdb(h, 35.5_fp, '/path/to/ssdb_nurtm/mw', &
+     ['cloud_liquid', 'cloud_ice   ', 'rain        ', 'snow        ', 'graupel     ', 'hail        '], &
+     platform=PLATFORM_SPACEBORNE)
+```
+
+Without a `config` it uses full extinction (`SCALING_NONE`) and no CRTM
+quality rules.
 
 `radar_simple_operator(h)` returns a pointer to the full operator, for
 the TL, AD and K-matrix routines.
@@ -183,4 +208,5 @@ liquid, Rayleigh absorption with the Mätzler ice permittivity for ice,
 snow and graupel, and ITU-R P.838-3 `k R^α` for rain (rain rate from water
 content with `M = 0.072 R^0.88`).
 
-See [doc/COMPARISON.md](doc/COMPARISON.md) for the comparison with CRTM.
+See [doc/COMPARISON.md](doc/COMPARISON.md) for the comparison with CRTM and
+[doc/TECHNICAL_NOTE.md](doc/TECHNICAL_NOTE.md) for the full technical note.

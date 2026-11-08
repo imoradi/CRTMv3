@@ -26,11 +26,11 @@
 !
 MODULE radar_simple
   USE radar_kinds
-  USE radar_species,  ONLY: radar_species_type, species_from_lut
+  USE radar_species,  ONLY: radar_species_type, species_from_lut, species_default_ssdb
   USE radar_operator
   IMPLICIT NONE
   PRIVATE
-  PUBLIC :: radar_simple_init, radar_simple_run, radar_simple_destroy
+  PUBLIC :: radar_simple_init, radar_simple_init_ssdb, radar_simple_run, radar_simple_destroy
   PUBLIC :: radar_simple_operator
   PUBLIC :: radar_mixing_ratio_to_content
   PUBLIC :: PLATFORM_SPACEBORNE, PLATFORM_GROUND
@@ -75,6 +75,48 @@ CONTAINS
       CALL radar_add_species(ops(handle), i, sp)
     END DO
   END SUBROUTINE radar_simple_init
+
+  !
+  ! radar_simple_init_ssdb: as radar_simple_init, but the species come from the
+  ! NuRTM single-particle databases in ssdb_dir with the temperature-dependent
+  ! PSDs of species_default_ssdb (cloud_liquid, rain, cloud_ice, snow, graupel,
+  ! hail). Unless a config is given, the full (unscaled) extinction is used.
+  !
+  SUBROUTINE radar_simple_init_ssdb(handle, frequency, ssdb_dir, species, platform, config)
+    INTEGER,                 INTENT(OUT) :: handle
+    REAL(fp),                INTENT(IN)  :: frequency
+    CHARACTER(*),            INTENT(IN)  :: ssdb_dir
+    CHARACTER(*),            INTENT(IN)  :: species(:)
+    INTEGER,       OPTIONAL, INTENT(IN)  :: platform
+    TYPE(radar_config_type), OPTIONAL, INTENT(IN) :: config
+    TYPE(radar_config_type)  :: c
+    TYPE(radar_species_type) :: sp
+    INTEGER :: i
+    handle = 0
+    DO i = 1, MAX_HANDLES
+      IF (.NOT. ops(i)%initialized) THEN
+        handle = i
+        EXIT
+      END IF
+    END DO
+    IF (handle == 0) THEN
+      WRITE(*,*) 'radar_simple_init_ssdb: no free handle'
+      ERROR STOP 1
+    END IF
+    IF (PRESENT(config)) THEN
+      c = config
+    ELSE
+      c%scaling = SCALING_NONE
+      c%crtm_compat = .FALSE.
+    END IF
+    c%frequency = frequency
+    IF (PRESENT(platform)) c%platform = platform
+    CALL radar_init(ops(handle), c, SIZE(species))
+    DO i = 1, SIZE(species)
+      CALL species_default_ssdb(sp, TRIM(species(i)), ssdb_dir, frequency, c%n_streams)
+      CALL radar_add_species(ops(handle), i, sp)
+    END DO
+  END SUBROUTINE radar_simple_init_ssdb
 
   ! Access the operator behind a handle (for TL/AD/K or to add particle species)
   FUNCTION radar_simple_operator(handle) RESULT(op)

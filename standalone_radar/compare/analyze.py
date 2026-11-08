@@ -11,7 +11,7 @@ h = d['height'][:]
 chans = ['DPR Ku 13.6 GHz', 'DPR Ka 35.5 GHz', 'CPR 94.05 GHz']
 vars_ = ['A: CRTM-compatible, CRTM gas', 'B: CRTM-compatible, ITU LBL gas',
          'C: approximate gas + hydro', 'D: LUT, full extinction, cloud bsc on',
-         'E: NuRTM particles + T08 PSD', 'F: E with full extinction'][:sz.shape[0]]
+         'E: NuRTM particles, T-dependent PSDs', 'F: E with full extinction'][:sz.shape[0]]
 NV = len(vars_)
 print('dims', cz.shape, sz.shape, ctg.shape, stc.shape)
 stats = {}
