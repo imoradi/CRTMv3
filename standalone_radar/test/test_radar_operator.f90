@@ -18,7 +18,7 @@ PROGRAM test_radar_operator
   USE radar_operator
   IMPLICIT NONE
   CHARACTER(512) :: lut, ssdb_dir
-  LOGICAL :: use_ssdb = .FALSE.
+  LOGICAL :: use_ssdb = .FALSE., ssdb_f07 = .FALSE.
   INTEGER, PARAMETER :: NL = 50, NS = 5
   TYPE(radar_operator_type) :: op
   TYPE(radar_config_type)   :: cfg
@@ -61,7 +61,9 @@ PROGRAM test_radar_operator
       cfg%scaling = SCALING_NONE; cfg%crtm_compat = .FALSE.
       CALL run_case('NuRTM DDA particles, Thompson 2008 PSD', cfg, .FALSE.)
       cfg%platform = PLATFORM_GROUND; prof%zenith = 20.0_fp
-      CALL run_case('NuRTM DDA particles, ground-based', cfg, .FALSE.)
+      ssdb_f07 = .TRUE.
+      CALL run_case('NuRTM DDA particles, ground-based, F07 snow', cfg, .FALSE.)
+      ssdb_f07 = .FALSE.
       prof%zenith = 0.0_fp
       use_ssdb = .FALSE.
     END IF
@@ -141,8 +143,13 @@ CONTAINS
           CALL species_from_ssdb(sp, 'cloud_ice', TRIM(ssdb_dir)//'/IceSphere.nc', c%frequency, &
                                  PSD_T08_ICE)
         CASE (4)
-          CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', c%frequency, &
-                                 PSD_T08_SNOW_FIELD05)
+          IF (ssdb_f07) THEN
+            CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', c%frequency, &
+                                   PSD_F07_MIDLAT)
+          ELSE
+            CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', c%frequency, &
+                                   PSD_T08_SNOW_FIELD05)
+          END IF
         CASE (5)
           CALL species_from_ssdb(sp, 'graupel', TRIM(ssdb_dir)//'/GemGraupel.nc', c%frequency, &
                                  PSD_T08_GRAUPEL)

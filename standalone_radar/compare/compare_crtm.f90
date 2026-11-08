@@ -29,7 +29,7 @@ PROGRAM compare_crtm
   USE radar_kinds,    ONLY: rfp => fp
   USE radar_gas,      ONLY: GAS_MODEL_ITU_LBL, GAS_MODEL_ITU_APPROX, GAS_MODEL_USER
   USE radar_species,  ONLY: radar_species_type, species_from_lut, species_from_ssdb, &
-                            PSD_GAMMA, PSD_T08_RAIN, PSD_T08_SNOW_FIELD05, PSD_T08_ICE, PSD_T08_SNOW
+                            PSD_GAMMA, PSD_T08_RAIN, PSD_T08_SNOW_FIELD05, PSD_T08_ICE, PSD_T08_SNOW, PSD_F07_MIDLAT
   USE radar_operator
   USE netcdf
   IMPLICIT NONE
@@ -167,10 +167,15 @@ CONTAINS
           CALL species_from_ssdb(sp, 'rain', TRIM(ssdb_dir)//'/LiquidSphere.nc', f, &
                                  PSD_T08_RAIN, size_param='d_veq')
         CASE (4)
-          ! RADAR_SNOW_PSD=exponential selects the Thompson (2004) exponential snow PSD
+          ! RADAR_SNOW_PSD=exponential: Thompson (2004) exponential snow PSD;
+          ! RADAR_SNOW_PSD=f07m_235: Field (2007) mid-latitude at 235 K (CRTM DDA table PSD)
           CALL GET_ENVIRONMENT_VARIABLE('RADAR_SNOW_PSD', arg)
           IF (TRIM(arg) == 'exponential') THEN
             CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, PSD_T08_SNOW)
+          ELSE IF (TRIM(arg) == 'f07m_235') THEN
+            ! the PSD the CRTM DDA tables were built with (Field 2007 mid-latitude, 235 K)
+            CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, PSD_F07_MIDLAT, &
+                                   t_fix=235.0_fp)
           ELSE
             CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, &
                                    PSD_T08_SNOW_FIELD05)

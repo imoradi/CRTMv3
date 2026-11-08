@@ -38,7 +38,8 @@ MODULE radar_species
   PUBLIC :: radar_species_type
   PUBLIC :: SOURCE_NONE, SOURCE_LUT, SOURCE_PARTICLE
   PUBLIC :: PHASE_LIQUID, PHASE_FROZEN
-  PUBLIC :: PSD_GAMMA_FIXED_N0, PSD_GAMMA, PSD_T08_RAIN, PSD_T08_SNOW, PSD_T08_SNOW_FIELD05, PSD_T08_GRAUPEL, PSD_T08_ICE
+  PUBLIC :: PSD_GAMMA_FIXED_N0, PSD_GAMMA, PSD_T08_RAIN, PSD_T08_SNOW, PSD_T08_SNOW_FIELD05, PSD_T08_GRAUPEL, PSD_T08_ICE, &
+            PSD_F07_MIDLAT, PSD_F07_TROPICAL
   PUBLIC :: species_from_ssdb
   PUBLIC :: N_OPT, I_EXT, I_SCA, I_BSC, I_FSCA, I_GSCA, I_ATT
   PUBLIC :: species_from_lut
@@ -60,6 +61,7 @@ MODULE radar_species
   !                       Field et al. 2005 form) and graupel, as NuRTM
   INTEGER, PARAMETER :: PSD_GAMMA_FIXED_N0 = 1, PSD_GAMMA = 2
   INTEGER, PARAMETER :: PSD_T08_RAIN = 3, PSD_T08_SNOW = 4, PSD_T08_SNOW_FIELD05 = 5, PSD_T08_GRAUPEL = 6, PSD_T08_ICE = 7
+  INTEGER, PARAMETER :: PSD_F07_MIDLAT = 8, PSD_F07_TROPICAL = 9
   ! Field et al. (2005) moment relation coefficients (WRF module_mp_thompson sa, sb)
   REAL(fp), PARAMETER :: F05_SA(10) = [5.065339_fp, -0.062659_fp, -3.032362_fp, 0.029469_fp, -0.000285_fp, &
                                        0.31255_fp, 0.000204_fp, 0.003199_fp, 0.0_fp, -0.015952_fp]
@@ -365,7 +367,9 @@ CONTAINS
   !
   !   psd_type   PSD_GAMMA (n0, mu), PSD_T08_RAIN, PSD_T08_SNOW,
   !              PSD_T08_SNOW_FIELD05, PSD_T08_GRAUPEL, PSD_T08_ICE (ni: fixed number
-  !              concentration in m-3, default Cooper 1986), or PSD_GAMMA_FIXED_N0
+  !              concentration in m-3, default Cooper 1986), PSD_F07_MIDLAT,
+  !              PSD_F07_TROPICAL (Field et al. 2007; t_fix = 235 reproduces the
+  !              CRTM DDA tables), or PSD_GAMMA_FIXED_N0
   !   size_param 'd_max' (default) or 'd_veq': the size the PSD is defined on
   !   phase      default: liquid when the temperature grid goes above 273.15 K
   !
@@ -663,6 +667,24 @@ CONTAINS
     END FUNCTION poly
   END FUNCTION field05_moment
 
+  ! Field et al. (2007) moment relation M_n = A(n) exp(B(n) Tc) M2^C(n):
+  ! which = 1 returns A exp(B Tc), which = 3 returns C
+  FUNCTION f07_coef(n, tc, which) RESULT(v)
+    REAL(fp),    INTENT(IN) :: n
+    COMPLEX(fp), INTENT(IN) :: tc
+    INTEGER,     INTENT(IN) :: which
+    COMPLEX(fp) :: v
+    REAL(fp) :: a, b, c
+    a = EXP(13.6078_fp - 7.76062_fp*n + 0.478694_fp*n*n)
+    b = -0.0360722_fp + 0.0150830_fp*n + 0.00149453_fp*n*n
+    c = 0.806856_fp + 0.00581022_fp*n + 0.0456723_fp*n*n
+    IF (which == 1) THEN
+      v = a*EXP(b*tc)
+    ELSE
+      v = CMPLX(c, ZERO, fp)
+    END IF
+  END FUNCTION f07_coef
+
   ! Number concentration per size bin (m-3) holding the water content rho
   SUBROUTINE psd_numbers_c(sp, rho, t, n)
     TYPE(radar_species_type), INTENT(IN)  :: sp
@@ -717,6 +739,28 @@ CONTAINS
       IF (REAL(lamc) < 1.0_fp/(2*300.0e-6_fp + 100.0e-6_fp)) lamc = 1.0_fp/(2*300.0e-6_fp + 100.0e-6_fp)
       IF (REAL(lamc) > 1.0e6_fp) lamc = 1.0e6_fp
       n = EXP(-lamc*sp%d)
+    CASE (PSD_F07_MIDLAT, PSD_F07_TROPICAL)
+      ! Field et al. (2007) moment-based ice/snow PSD with the database mass-size
+      ! fit m = a D^b (as used to build the CRTM DDA tables, pyWeather
+      ! psd_field.py; those tables use a fixed T = 235 K: t_fix).
+      ! Valid for -70 < Tc < 0 C; the temperature is held in that range.
+      tc = tk - 273.0_fp
+      tc = cmax(cmin(tc, CMPLX(-0.1_fp, ZERO, fp)), CMPLX(-70.0_fp, ZERO, fp))
+      m3 = rho/sp%a_ms                                   ! M_beta
+      IF (ABS(sp%b_ms - 2.0_fp) < 1.0e-12_fp) THEN
+        m2 = m3
+      ELSE
+        m2 = (m3/f07_coef(sp%b_ms, tc, 1))**(1.0_fp/f07_coef(sp%b_ms, tc, 3))
+      END IF
+      m3 = f07_coef(3.0_fp, tc, 1)*m2**f07_coef(3.0_fp, tc, 3)
+      r = m2/m3
+      IF (sp%psd_type == PSD_F07_MIDLAT) THEN
+        n = 141.0_fp*EXP(-16.8_fp*r*sp%d) + 102.0_fp*(r*sp%d)**2.07_fp*EXP(-4.82_fp*r*sp%d)
+      ELSE
+        n = 152.0_fp*EXP(-12.4_fp*r*sp%d) + 3.28_fp*(r*sp%d)**(-0.78_fp)*EXP(-1.94_fp*r*sp%d)
+      END IF
+      WHERE (REAL(r*sp%d) >= 20.0_fp) n = 0
+      n = n*m2**4/m3**3
     CASE (PSD_T08_SNOW_FIELD05)
       tc = cmin(CMPLX(-0.1_fp, ZERO, fp), tk - 273.15_fp)
       m2 = rho/0.069_fp

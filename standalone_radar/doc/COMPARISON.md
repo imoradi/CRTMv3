@@ -120,10 +120,15 @@ Median Z (dBZ) on gates with only one species, all 60048 profiles:
 
 * **Rain agrees with the CRTM table to 0.1 dB** at all three frequencies.
 * **Snow is 4 to 7 dB higher than CRTM even with the same habit**, so the
-  difference is in the PSD. The CRTM frozen tables have no temperature
-  dimension, so they were built for one PSD per water content, while the
-  Field (2005) PSD here uses the layer temperature. With the exponential
-  Thompson (2004) snow PSD the difference grows to 6 to 10 dB.
+  difference is in the PSD. The scripts that built the CRTM DDA table
+  (pyWeather `dda/gen_dda_coef`) use Thompson 2008 only for liquid (cloud
+  water and rain). All frozen habits use the Field et al. (2007)
+  mid-latitude PSD at a fixed 235 K, with the habit mass-size relation.
+  With that PSD (`PSD_F07_MIDLAT`, `t_fix = 235`, `RADAR_SNOW_PSD=f07m_235` in
+  the driver) the standalone snow agrees with CRTM to within 0.35 to 0.47 dB
+  (sd 0.1 dB) at all three frequencies. The remaining offset is consistent
+  with the mass-size relation (database masses here, the ARTS α, β fit in
+  the table) and the temperature of the cross sections.
 * **Cloud liquid** gives about −54 dBZ, realistic for these small water
   contents.
 * **Cloud ice** with the Thompson PSD gives a median of −26 dBZ (90th
