@@ -129,6 +129,25 @@ Median Z (dBZ) on gates with only one species, all 60048 profiles:
   (sd 0.1 dB) at all three frequencies. The remaining offset is consistent
   with the mass-size relation (database masses here, the ARTS α, β fit in
   the table) and the temperature of the cross sections.
+* **Fixed 235 K vs layer temperature for the Field (2007) snow PSD**
+  (`RADAR_SNOW_PSD=f07m` vs `f07m_235`, all 60048 profiles). Using the layer
+  temperature raises snow Z by 7.3 dB at Ku, 6.8 dB at Ka and 4.9 dB at W on
+  snow-only gates, and the change grows with temperature:
+
+  | Layer T (K) | Ku | Ka | W |
+  | --- | --- | --- | --- |
+  | 235–245 | +1.3 | +1.3 | +1.1 |
+  | 245–255 | +3.4 | +3.3 | +2.7 |
+  | 255–265 | +5.5 | +5.3 | +4.3 |
+  | 265–273 | +7.6 | +7.1 | +5.0 |
+
+  Warmer snow has fewer, larger particles in Field (2007), and most snow in
+  this file is between 265 and 273 K. Over all gates with snow, attenuated Z
+  changes by +1.0 (Ku), +0.9 (Ka) and +0.3 dB (W). The two-way PIA at the
+  surface changes little at Ku and Ka (at most 2.4 dB), but at W it goes up
+  by 0.3 dB on average and by up to 34 dB in heavy snow. So the fixed 235 K
+  in the CRTM tables makes snow several dB too weak at the temperatures
+  where most snow is.
 * **Cloud liquid** gives about −54 dBZ, realistic for these small water
   contents.
 * **Cloud ice** with the Thompson PSD gives a median of −26 dBZ (90th

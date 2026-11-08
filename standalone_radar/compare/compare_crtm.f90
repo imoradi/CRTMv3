@@ -168,10 +168,14 @@ CONTAINS
                                  PSD_T08_RAIN, size_param='d_veq')
         CASE (4)
           ! RADAR_SNOW_PSD=exponential: Thompson (2004) exponential snow PSD;
-          ! RADAR_SNOW_PSD=f07m_235: Field (2007) mid-latitude at 235 K (CRTM DDA table PSD)
+          ! RADAR_SNOW_PSD=f07m_235: Field (2007) mid-latitude at 235 K (CRTM DDA table PSD);
+          ! RADAR_SNOW_PSD=f07m: Field (2007) mid-latitude at the layer temperature
           CALL GET_ENVIRONMENT_VARIABLE('RADAR_SNOW_PSD', arg)
           IF (TRIM(arg) == 'exponential') THEN
             CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, PSD_T08_SNOW)
+          ELSE IF (TRIM(arg) == 'f07m') THEN
+            ! Field 2007 mid-latitude at the layer temperature
+            CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, PSD_F07_MIDLAT)
           ELSE IF (TRIM(arg) == 'f07m_235') THEN
             ! the PSD the CRTM DDA tables were built with (Field 2007 mid-latitude, 235 K)
             CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, PSD_F07_MIDLAT, &
