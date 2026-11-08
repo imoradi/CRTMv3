@@ -9,7 +9,7 @@
 ! multiple scattering, bulk LUT and single-particle species, user gas
 ! optical depth, directly supplied bulk properties).
 !
-! Usage: test_radar_operator CloudCoeff.nc4
+! Usage: test_radar_operator CloudCoeff.nc4 [nurtm_ssdb_dir]
 !
 PROGRAM test_radar_operator
   USE radar_kinds
@@ -17,7 +17,8 @@ PROGRAM test_radar_operator
   USE radar_species
   USE radar_operator
   IMPLICIT NONE
-  CHARACTER(512) :: lut
+  CHARACTER(512) :: lut, ssdb_dir
+  LOGICAL :: use_ssdb = .FALSE.
   INTEGER, PARAMETER :: NL = 50, NS = 5
   TYPE(radar_operator_type) :: op
   TYPE(radar_config_type)   :: cfg
@@ -31,6 +32,7 @@ PROGRAM test_radar_operator
     WRITE(*,*) 'usage: test_radar_operator CloudCoeff.nc4'
     STOP 1
   END IF
+  CALL GET_COMMAND_ARGUMENT(2, ssdb_dir)
   nfail = 0
   CALL make_profile(prof)
 
@@ -53,6 +55,16 @@ PROGRAM test_radar_operator
     CALL run_case('user gas optical depth + bulk properties', cfg, .TRUE.)
     cfg = radar_config_type(); cfg%frequency = freqs(ifreq)
     CALL run_case('single-particle rain species (PSD)', cfg, .FALSE., particle_rain=.TRUE.)
+    IF (LEN_TRIM(ssdb_dir) > 0) THEN
+      use_ssdb = .TRUE.
+      cfg = radar_config_type(); cfg%frequency = freqs(ifreq)
+      cfg%scaling = SCALING_NONE; cfg%crtm_compat = .FALSE.
+      CALL run_case('NuRTM DDA particles, Thompson 2008 PSD', cfg, .FALSE.)
+      cfg%platform = PLATFORM_GROUND; prof%zenith = 20.0_fp
+      CALL run_case('NuRTM DDA particles, ground-based', cfg, .FALSE.)
+      prof%zenith = 0.0_fp
+      use_ssdb = .FALSE.
+    END IF
   END DO
 
   IF (nfail > 0) THEN
@@ -117,7 +129,25 @@ CONTAINS
     INTEGER :: i
     CALL radar_init(op, c, NS)
     DO i = 1, NS
-      IF (particle_rain .AND. i == 2) THEN
+      IF (use_ssdb) THEN
+        SELECT CASE (i)
+        CASE (1)
+          CALL species_from_ssdb(sp, 'cloud_liquid', TRIM(ssdb_dir)//'/LiquidSphere.nc', c%frequency, &
+                                 PSD_GAMMA, n0=3.0e35_fp, mu=4.0_fp, size_param='d_veq')
+        CASE (2)
+          CALL species_from_ssdb(sp, 'rain', TRIM(ssdb_dir)//'/LiquidSphere.nc', c%frequency, &
+                                 PSD_T08_RAIN, size_param='d_veq')
+        CASE (3)
+          CALL species_from_ssdb(sp, 'cloud_ice', TRIM(ssdb_dir)//'/IceSphere.nc', c%frequency, &
+                                 PSD_GAMMA, n0=1.0e10_fp, mu=1.0_fp)
+        CASE (4)
+          CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', c%frequency, &
+                                 PSD_T08_SNOW_FIELD05)
+        CASE (5)
+          CALL species_from_ssdb(sp, 'graupel', TRIM(ssdb_dir)//'/GemGraupel.nc', c%frequency, &
+                                 PSD_T08_GRAUPEL)
+        END SELECT
+      ELSE IF (particle_rain .AND. i == 2) THEN
         CALL rain_particles(c%frequency, sp)
       ELSE
         CALL species_from_lut(sp, TRIM(names(i)), TRIM(lut), c%frequency, c%n_streams)

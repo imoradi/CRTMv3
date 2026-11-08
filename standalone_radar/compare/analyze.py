@@ -10,7 +10,9 @@ stc = d['sa_tau_cum'][:]; sth = d['sa_tau_hydro'][:]
 h = d['height'][:]
 chans = ['DPR Ku 13.6 GHz', 'DPR Ka 35.5 GHz', 'CPR 94.05 GHz']
 vars_ = ['A: CRTM-compatible, CRTM gas', 'B: CRTM-compatible, ITU LBL gas',
-         'C: approximate gas + hydro', 'D: physical (full extinction)']
+         'C: approximate gas + hydro', 'D: LUT, full extinction, cloud bsc on',
+         'E: NuRTM particles + T08 PSD', 'F: E with full extinction'][:sz.shape[0]]
+NV = len(vars_)
 print('dims', cz.shape, sz.shape, ctg.shape, stc.shape)
 stats = {}
 for ic, cn in enumerate(chans):
@@ -28,9 +30,9 @@ for ic, cn in enumerate(chans):
 json.dump(stats, open(f'{outdir}/stats.json', 'w'), indent=1)
 
 # Figure 1: Zatt standalone vs CRTM per variant and channel (2D hist)
-fig, ax = plt.subplots(3, 4, figsize=(16, 11.5), constrained_layout=True)
+fig, ax = plt.subplots(3, NV, figsize=(4 * NV, 11.5), constrained_layout=True)
 for ic in range(3):
-    for v in range(4):
+    for v in range(NV):
         a, b = sza[v, ic].ravel(), cza[ic].ravel()
         m = (a > -100) & (b > -100) & (b > -30)
         H = ax[ic, v].hexbin(b[m], a[m], gridsize=80, bins='log', cmap='viridis', mincnt=1,
@@ -45,7 +47,7 @@ fig.savefig(f'{outdir}/zatt_scatter.png', dpi=110)
 fig, ax = plt.subplots(1, 3, figsize=(15, 5.5), constrained_layout=True, sharey=True)
 hb = np.arange(0, 16001, 500)
 for ic in range(3):
-    for v in range(3):
+    for v in [x for x in range(NV) if x != 3]:
         a, b = sza[v, ic], cza[ic]
         m = (a > -100) & (b > -100)
         df = (a - b)[m]; hh = h[m] if h.shape == a.shape else np.broadcast_to(h, a.shape)[m]
@@ -89,4 +91,23 @@ ax[1].plot([0, 200], [0, 200], 'k--', lw=.7); ax[1].set_xscale('symlog', linthre
 ax[1].set_xlabel('surface PIA, delta-truncated extinction (dB)'); ax[1].set_ylabel('surface PIA, full extinction (dB)')
 ax[1].set_title('Two-way PIA at the surface'); ax[1].legend(fontsize=8)
 fig.savefig(f'{outdir}/crtm_omissions.png', dpi=110)
+
+# Per-species gates (only one species present): standalone particle variant E minus CRTM
+wc = d['water_content'][:]
+spn = ['cloud liquid', 'cloud ice', 'rain', 'snow']
+rows = []
+if NV > 4:
+    for s_ in range(4):
+        only = (wc[s_] > 1e-6) & (np.delete(wc, s_, 0).max(0) < 1e-12)
+        for ic in range(3):
+            for v in (3, 4):
+                z = sz[v, ic][only]; c = cz[ic][only]
+                ok = z > -100
+                zc = c[ok & (c > -100)]
+                rows.append(dict(species=spn[s_], channel=chans[ic], variant=vars_[v][0], n=int(only.sum()),
+                                 z_median=float(np.median(z[ok])) if ok.any() else None,
+                                 crtm_median=float(np.median(zc)) if zc.size else None,
+                                 diff_mean=float((z - c)[ok & (c > -100)].mean()) if (ok & (c > -100)).any() else None))
+                print(rows[-1])
+    json.dump(rows, open(f'{outdir}/species_only.json', 'w'), indent=1)
 print('done')

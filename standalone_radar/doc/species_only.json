@@ -1,0 +1,218 @@
+[
+ {
+  "species": "cloud liquid",
+  "channel": "DPR Ku 13.6 GHz",
+  "variant": "D",
+  "n": 4551,
+  "z_median": -6.376478672027588,
+  "crtm_median": null,
+  "diff_mean": null
+ },
+ {
+  "species": "cloud liquid",
+  "channel": "DPR Ku 13.6 GHz",
+  "variant": "E",
+  "n": 4551,
+  "z_median": -53.916717529296875,
+  "crtm_median": null,
+  "diff_mean": null
+ },
+ {
+  "species": "cloud liquid",
+  "channel": "DPR Ka 35.5 GHz",
+  "variant": "D",
+  "n": 4551,
+  "z_median": -6.158116817474365,
+  "crtm_median": null,
+  "diff_mean": null
+ },
+ {
+  "species": "cloud liquid",
+  "channel": "DPR Ka 35.5 GHz",
+  "variant": "E",
+  "n": 4551,
+  "z_median": -53.87540817260742,
+  "crtm_median": null,
+  "diff_mean": null
+ },
+ {
+  "species": "cloud liquid",
+  "channel": "CPR 94.05 GHz",
+  "variant": "D",
+  "n": 4551,
+  "z_median": -5.928463935852051,
+  "crtm_median": null,
+  "diff_mean": null
+ },
+ {
+  "species": "cloud liquid",
+  "channel": "CPR 94.05 GHz",
+  "variant": "E",
+  "n": 4551,
+  "z_median": -53.63715362548828,
+  "crtm_median": null,
+  "diff_mean": null
+ },
+ {
+  "species": "cloud ice",
+  "channel": "DPR Ku 13.6 GHz",
+  "variant": "D",
+  "n": 254588,
+  "z_median": -17.596920013427734,
+  "crtm_median": null,
+  "diff_mean": null
+ },
+ {
+  "species": "cloud ice",
+  "channel": "DPR Ku 13.6 GHz",
+  "variant": "E",
+  "n": 254588,
+  "z_median": -0.1390991508960724,
+  "crtm_median": null,
+  "diff_mean": null
+ },
+ {
+  "species": "cloud ice",
+  "channel": "DPR Ka 35.5 GHz",
+  "variant": "D",
+  "n": 254588,
+  "z_median": -17.310569763183594,
+  "crtm_median": null,
+  "diff_mean": null
+ },
+ {
+  "species": "cloud ice",
+  "channel": "DPR Ka 35.5 GHz",
+  "variant": "E",
+  "n": 254588,
+  "z_median": -0.11023317277431488,
+  "crtm_median": null,
+  "diff_mean": null
+ },
+ {
+  "species": "cloud ice",
+  "channel": "CPR 94.05 GHz",
+  "variant": "D",
+  "n": 254588,
+  "z_median": -16.405227661132812,
+  "crtm_median": null,
+  "diff_mean": null
+ },
+ {
+  "species": "cloud ice",
+  "channel": "CPR 94.05 GHz",
+  "variant": "E",
+  "n": 254588,
+  "z_median": -1.9509859085083008,
+  "crtm_median": null,
+  "diff_mean": null
+ },
+ {
+  "species": "rain",
+  "channel": "DPR Ku 13.6 GHz",
+  "variant": "D",
+  "n": 34284,
+  "z_median": 2.198127269744873,
+  "crtm_median": 2.198127269744873,
+  "diff_mean": 1.5183348978098365e-07
+ },
+ {
+  "species": "rain",
+  "channel": "DPR Ku 13.6 GHz",
+  "variant": "E",
+  "n": 34284,
+  "z_median": 2.2781741619110107,
+  "crtm_median": 2.198127269744873,
+  "diff_mean": 0.08047372102737427
+ },
+ {
+  "species": "rain",
+  "channel": "DPR Ka 35.5 GHz",
+  "variant": "D",
+  "n": 34284,
+  "z_median": 2.923769474029541,
+  "crtm_median": 2.923769235610962,
+  "diff_mean": 2.2661255627554056e-07
+ },
+ {
+  "species": "rain",
+  "channel": "DPR Ka 35.5 GHz",
+  "variant": "E",
+  "n": 34284,
+  "z_median": 2.9294991493225098,
+  "crtm_median": 2.923769235610962,
+  "diff_mean": 0.00796958152204752
+ },
+ {
+  "species": "rain",
+  "channel": "CPR 94.05 GHz",
+  "variant": "D",
+  "n": 34284,
+  "z_median": 2.689758062362671,
+  "crtm_median": 2.689757823944092,
+  "diff_mean": 3.657885656593862e-07
+ },
+ {
+  "species": "rain",
+  "channel": "CPR 94.05 GHz",
+  "variant": "E",
+  "n": 34284,
+  "z_median": 2.643949508666992,
+  "crtm_median": 2.689757823944092,
+  "diff_mean": -0.04332774877548218
+ },
+ {
+  "species": "snow",
+  "channel": "DPR Ku 13.6 GHz",
+  "variant": "D",
+  "n": 6078,
+  "z_median": -8.44217300415039,
+  "crtm_median": -8.44217300415039,
+  "diff_mean": 1.4960622252147004e-07
+ },
+ {
+  "species": "snow",
+  "channel": "DPR Ku 13.6 GHz",
+  "variant": "E",
+  "n": 6078,
+  "z_median": -1.8064744472503662,
+  "crtm_median": -8.44217300415039,
+  "diff_mean": 6.37754487991333
+ },
+ {
+  "species": "snow",
+  "channel": "DPR Ka 35.5 GHz",
+  "variant": "D",
+  "n": 6078,
+  "z_median": -8.160846710205078,
+  "crtm_median": -8.160846710205078,
+  "diff_mean": 2.234862392924697e-07
+ },
+ {
+  "species": "snow",
+  "channel": "DPR Ka 35.5 GHz",
+  "variant": "E",
+  "n": 6078,
+  "z_median": -2.0707004070281982,
+  "crtm_median": -8.160846710205078,
+  "diff_mean": 5.403273105621338
+ },
+ {
+  "species": "snow",
+  "channel": "CPR 94.05 GHz",
+  "variant": "D",
+  "n": 6078,
+  "z_median": -7.288138389587402,
+  "crtm_median": -7.2881388664245605,
+  "diff_mean": 3.671017623219086e-07
+ },
+ {
+  "species": "snow",
+  "channel": "CPR 94.05 GHz",
+  "variant": "E",
+  "n": 6078,
+  "z_median": -3.8119382858276367,
+  "crtm_median": -7.2881388664245605,
+  "diff_mean": 2.716869831085205
+ }
+]

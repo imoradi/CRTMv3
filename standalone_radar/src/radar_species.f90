@@ -38,7 +38,8 @@ MODULE radar_species
   PUBLIC :: radar_species_type
   PUBLIC :: SOURCE_NONE, SOURCE_LUT, SOURCE_PARTICLE
   PUBLIC :: PHASE_LIQUID, PHASE_FROZEN
-  PUBLIC :: PSD_GAMMA_FIXED_N0
+  PUBLIC :: PSD_GAMMA_FIXED_N0, PSD_GAMMA, PSD_T08_RAIN, PSD_T08_SNOW, PSD_T08_SNOW_FIELD05, PSD_T08_GRAUPEL
+  PUBLIC :: species_from_ssdb
   PUBLIC :: N_OPT, I_EXT, I_SCA, I_BSC, I_FSCA, I_GSCA, I_ATT
   PUBLIC :: species_from_lut
   PUBLIC :: species_from_particles
@@ -49,7 +50,21 @@ MODULE radar_species
 
   INTEGER, PARAMETER :: SOURCE_NONE = 0, SOURCE_LUT = 1, SOURCE_PARTICLE = 2
   INTEGER, PARAMETER :: PHASE_LIQUID = 0, PHASE_FROZEN = 1
-  INTEGER, PARAMETER :: PSD_GAMMA_FIXED_N0 = 1
+  ! Particle size distributions
+  !   PSD_GAMMA_FIXED_N0  N0 D^mu exp(-lambda D), lambda solved so the PSD holds the
+  !                       water content with the given particle masses
+  !   PSD_GAMMA           as NuRTM: lambda from a power-law mass-size fit to the
+  !                       database, then renormalised to the database masses
+  !   PSD_T08_*           Thompson et al. (2008) rain, snow (exponential with the
+  !                       T04 temperature-dependent intercept, or the two-mode
+  !                       Field et al. 2005 form) and graupel, as NuRTM
+  INTEGER, PARAMETER :: PSD_GAMMA_FIXED_N0 = 1, PSD_GAMMA = 2
+  INTEGER, PARAMETER :: PSD_T08_RAIN = 3, PSD_T08_SNOW = 4, PSD_T08_SNOW_FIELD05 = 5, PSD_T08_GRAUPEL = 6
+  ! Field et al. (2005) moment relation coefficients (WRF module_mp_thompson sa, sb)
+  REAL(fp), PARAMETER :: F05_SA(10) = [5.065339_fp, -0.062659_fp, -3.032362_fp, 0.029469_fp, -0.000285_fp, &
+                                       0.31255_fp, 0.000204_fp, 0.003199_fp, 0.0_fp, -0.015952_fp]
+  REAL(fp), PARAMETER :: F05_SB(10) = [0.476221_fp, -0.015896_fp, 0.165977_fp, 0.007468_fp, -0.000141_fp, &
+                                       0.060366_fp, 0.000079_fp, 0.000594_fp, 0.0_fp, -0.003577_fp]
 
   ! Indices of the optical quantities
   INTEGER, PARAMETER :: N_OPT = 6
@@ -89,11 +104,16 @@ MODULE radar_species
     INTEGER  :: psd_type = PSD_GAMMA_FIXED_N0
     REAL(fp) :: n0 = 8.0e6_fp              ! m^-(4+mu)
     REAL(fp) :: mu = ZERO
+    REAL(fp) :: a_ms = ZERO, b_ms = 3.0_fp ! mass-size relation m = a D^b (PSD_GAMMA)
+    REAL(fp) :: rho_air = 1.225_fp         ! graupel intercept (PSD_T08_GRAUPEL)
+    REAL(fp) :: t_fix = ZERO               ! >0: fixed temperature for the T08 snow PSD (K)
     INTEGER  :: n_streams = 4
-    REAL(fp), ALLOCATABLE :: d(:)          ! particle size (m)
+    INTEGER  :: ntp = 1                    ! temperatures of the cross sections
+    REAL(fp), ALLOCATABLE :: tgp(:)        ! (ntp) K
+    REAL(fp), ALLOCATABLE :: d(:)          ! particle size (m) on which the PSD is defined
     REAL(fp), ALLOCATABLE :: dd(:)         ! quadrature weights (m)
     REAL(fp), ALLOCATABLE :: mass(:)       ! particle mass (kg)
-    REAL(fp), ALLOCATABLE :: cext(:), csca(:), cbsc(:), asym(:)   ! m2, m2, m2, -
+    REAL(fp), ALLOCATABLE :: cext(:,:), csca(:,:), cbsc(:,:), asym(:,:)   ! (nd, ntp) m2, m2, m2, -
   END TYPE radar_species_type
 
 CONTAINS
@@ -287,7 +307,7 @@ CONTAINS
     REAL(fp),                 INTENT(IN)  :: frequency, d(:), mass(:), cext(:), csca(:), cbsc(:), asym(:)
     REAL(fp),                 INTENT(IN)  :: n0, mu
     INTEGER,  OPTIONAL,       INTENT(IN)  :: n_streams, approx_kind
-    INTEGER :: n, i
+    INTEGER :: n
     n = SIZE(d)
     sp%name = name
     sp%source = SOURCE_PARTICLE
@@ -305,15 +325,195 @@ CONTAINS
     ELSE
       sp%approx_kind = APPROX_ICE
     END IF
-    ALLOCATE(sp%d(n), sp%dd(n), sp%mass(n), sp%cext(n), sp%csca(n), sp%cbsc(n), sp%asym(n))
-    sp%d = d; sp%mass = mass; sp%cext = cext; sp%csca = csca; sp%cbsc = cbsc; sp%asym = asym
-    ! Trapezoidal weights
-    sp%dd = ZERO
-    DO i = 1, n-1
-      sp%dd(i)   = sp%dd(i)   + 0.5_fp*(d(i+1) - d(i))
-      sp%dd(i+1) = sp%dd(i+1) + 0.5_fp*(d(i+1) - d(i))
-    END DO
+    sp%psd_type = PSD_GAMMA_FIXED_N0
+    sp%ntp = 1
+    ALLOCATE(sp%tgp(1)); sp%tgp = 273.15_fp
+    ALLOCATE(sp%d(n), sp%dd(n), sp%mass(n), sp%cext(n,1), sp%csca(n,1), sp%cbsc(n,1), sp%asym(n,1))
+    sp%d = d; sp%mass = mass
+    sp%cext(:,1) = cext; sp%csca(:,1) = csca; sp%cbsc(:,1) = cbsc; sp%asym(:,1) = asym
+    CALL bin_widths(d, sp%dd)
   END SUBROUTINE species_from_particles
+
+  ! Trapezoid bin widths for sorted sizes
+  SUBROUTINE bin_widths(d, dd)
+    REAL(fp), INTENT(IN)  :: d(:)
+    REAL(fp), INTENT(OUT) :: dd(:)
+    INTEGER :: i, n
+    n = SIZE(d)
+    dd = ZERO
+    IF (n == 1) THEN
+      dd = ONE
+      RETURN
+    END IF
+    DO i = 1, n-1
+      dd(i)   = dd(i)   + 0.5_fp*(d(i+1) - d(i))
+      dd(i+1) = dd(i+1) + 0.5_fp*(d(i+1) - d(i))
+    END DO
+  END SUBROUTINE bin_widths
+
+  !
+  ! species_from_ssdb
+  !   Build a species from a NuRTM single-scattering database file (one habit,
+  !   totally random orientation; variables frequency (Hz), temperature (K),
+  !   d_veq, d_max (m), mass (kg), scat_angle (deg), ext, abs, bsc (m2) and
+  !   pha (m2 sr-1, F11 is element 1)). The cross sections are interpolated
+  !   linearly to the radar frequency, as NuRTM does, and kept on the
+  !   temperature grid; the layer temperature interpolates between them.
+  !   The asymmetry parameter is computed from F11.
+  !
+  !   psd_type   PSD_GAMMA (n0, mu), PSD_T08_RAIN, PSD_T08_SNOW,
+  !              PSD_T08_SNOW_FIELD05, PSD_T08_GRAUPEL, or PSD_GAMMA_FIXED_N0
+  !   size_param 'd_max' (default) or 'd_veq': the size the PSD is defined on
+  !   phase      default: liquid when the temperature grid goes above 273.15 K
+  !
+  SUBROUTINE species_from_ssdb(sp, name, filename, frequency, psd_type, n0, mu, size_param, &
+                               n_streams, phase, approx_kind, rho_air, t_fix)
+    TYPE(radar_species_type), INTENT(OUT) :: sp
+    CHARACTER(*),             INTENT(IN)  :: name, filename
+    REAL(fp),                 INTENT(IN)  :: frequency
+    INTEGER,                  INTENT(IN)  :: psd_type
+    REAL(fp),       OPTIONAL, INTENT(IN)  :: n0, mu, rho_air, t_fix
+    CHARACTER(*),   OPTIONAL, INTENT(IN)  :: size_param
+    INTEGER,        OPTIONAL, INTENT(IN)  :: n_streams, phase, approx_kind
+    INTEGER :: ncid, varid, dimid, nf, nt, nd, na, i1, i2, k, j, ia, st
+    REAL(fp), ALLOCATABLE :: freq(:), dveq(:), dmax(:), ang(:), e(:,:), a(:,:), b(:,:), f11(:,:,:)
+    REAL(fp) :: fhz, wf, mu_, x, num, den, dth, xm, ym, sxy, sxx
+    REAL(fp), ALLOCATABLE :: c1(:,:,:), lx(:), ly(:)
+    LOGICAL :: have_bsc
+
+    sp%name = name
+    sp%source = SOURCE_PARTICLE
+    sp%frequency = frequency
+    sp%psd_type = psd_type
+    IF (PRESENT(n0)) sp%n0 = n0
+    mu_ = ZERO
+    IF (PRESENT(mu)) mu_ = mu
+    sp%mu = mu_
+    IF (PRESENT(rho_air)) sp%rho_air = rho_air
+    IF (PRESENT(t_fix)) sp%t_fix = t_fix
+    IF (PRESENT(n_streams)) sp%n_streams = n_streams
+    sp%rayleigh_only = .FALSE.
+
+    CALL nc_check(nf90_open(filename, NF90_NOWRITE, ncid), 'open '//TRIM(filename))
+    CALL nc_check(nf90_inq_dimid(ncid, 'frequency', dimid), 'frequency')
+    CALL nc_check(nf90_inquire_dimension(ncid, dimid, len=nf), 'frequency')
+    CALL nc_check(nf90_inq_dimid(ncid, 'temperature', dimid), 'temperature')
+    CALL nc_check(nf90_inquire_dimension(ncid, dimid, len=nt), 'temperature')
+    CALL nc_check(nf90_inq_dimid(ncid, 'size', dimid), 'size')
+    CALL nc_check(nf90_inquire_dimension(ncid, dimid, len=nd), 'size')
+    CALL nc_check(nf90_inq_dimid(ncid, 'scat_angle', dimid), 'scat_angle')
+    CALL nc_check(nf90_inquire_dimension(ncid, dimid, len=na), 'scat_angle')
+    ALLOCATE(freq(nf), dveq(nd), dmax(nd), ang(na))
+    ALLOCATE(sp%tgp(nt), sp%d(nd), sp%dd(nd), sp%mass(nd))
+    ALLOCATE(sp%cext(nd,nt), sp%csca(nd,nt), sp%cbsc(nd,nt), sp%asym(nd,nt))
+    CALL nc_check(nf90_inq_varid(ncid, 'frequency', varid), 'frequency')
+    CALL nc_check(nf90_get_var(ncid, varid, freq), 'frequency')
+    CALL nc_check(nf90_inq_varid(ncid, 'temperature', varid), 'temperature')
+    CALL nc_check(nf90_get_var(ncid, varid, sp%tgp), 'temperature')
+    CALL nc_check(nf90_inq_varid(ncid, 'd_veq', varid), 'd_veq')
+    CALL nc_check(nf90_get_var(ncid, varid, dveq), 'd_veq')
+    CALL nc_check(nf90_inq_varid(ncid, 'd_max', varid), 'd_max')
+    CALL nc_check(nf90_get_var(ncid, varid, dmax), 'd_max')
+    CALL nc_check(nf90_inq_varid(ncid, 'mass', varid), 'mass')
+    CALL nc_check(nf90_get_var(ncid, varid, sp%mass), 'mass')
+    CALL nc_check(nf90_inq_varid(ncid, 'scat_angle', varid), 'scat_angle')
+    CALL nc_check(nf90_get_var(ncid, varid, ang), 'scat_angle')
+    sp%ntp = nt
+    sp%nd = nd
+
+    ! Frequency bracket (linear interpolation, clamped)
+    fhz = frequency*1.0e9_fp
+    IF (fhz <= freq(1)) THEN
+      i1 = 1; i2 = 1; wf = ZERO
+    ELSE IF (fhz >= freq(nf)) THEN
+      i1 = nf; i2 = nf; wf = ZERO
+    ELSE
+      DO i1 = 1, nf-1
+        IF (freq(i1+1) >= fhz) EXIT
+      END DO
+      i2 = i1 + 1
+      wf = (fhz - freq(i1))/(freq(i2) - freq(i1))
+    END IF
+
+    ALLOCATE(e(nt,nd), a(nt,nd), b(nt,nd), f11(nt,nd,na), c1(nt,nd,na))
+    sp%cext = ZERO; sp%csca = ZERO; sp%cbsc = ZERO; sp%asym = ZERO
+    st = nf90_inq_varid(ncid, 'bsc', varid)
+    have_bsc = (st == NF90_NOERR)
+    DO k = 1, 2
+      IF (k == 1) THEN
+        j = i1; x = ONE - wf
+      ELSE
+        j = i2; x = wf
+      END IF
+      CALL nc_check(nf90_inq_varid(ncid, 'ext', varid), 'ext')
+      CALL nc_check(nf90_get_var(ncid, varid, e, start=[j,1,1], count=[1,nt,nd]), 'ext')
+      CALL nc_check(nf90_inq_varid(ncid, 'abs', varid), 'abs')
+      CALL nc_check(nf90_get_var(ncid, varid, a, start=[j,1,1], count=[1,nt,nd]), 'abs')
+      CALL nc_check(nf90_inq_varid(ncid, 'pha', varid), 'pha')
+      CALL nc_check(nf90_get_var(ncid, varid, c1, start=[j,1,1,1,1], count=[1,nt,nd,na,1]), 'pha')
+      IF (have_bsc) THEN
+        CALL nc_check(nf90_inq_varid(ncid, 'bsc', varid), 'bsc')
+        CALL nc_check(nf90_get_var(ncid, varid, b, start=[j,1,1], count=[1,nt,nd]), 'bsc')
+      ELSE
+        b = 4.0_fp*ACOS(-ONE)*c1(:,:,na)
+      END IF
+      IF (k == 1) THEN
+        f11 = x*c1
+      ELSE
+        f11 = f11 + x*c1
+      END IF
+      sp%cext = sp%cext + x*TRANSPOSE(e)
+      sp%csca = sp%csca + x*TRANSPOSE(e - a)
+      sp%cbsc = sp%cbsc + x*TRANSPOSE(b)
+    END DO
+    CALL nc_check(nf90_close(ncid), 'close')
+    sp%csca = MAX(sp%csca, ZERO)
+    ! Asymmetry parameter from F11 (trapezoid in scattering angle)
+    DO k = 1, nt
+      DO j = 1, nd
+        num = ZERO; den = ZERO
+        DO ia = 1, na-1
+          dth = (ang(ia+1) - ang(ia))*ACOS(-ONE)/180.0_fp
+          x = 0.5_fp*dth
+          num = num + x*(f11(k,j,ia)*COSD(ang(ia))*SIND(ang(ia)) + f11(k,j,ia+1)*COSD(ang(ia+1))*SIND(ang(ia+1)))
+          den = den + x*(f11(k,j,ia)*SIND(ang(ia)) + f11(k,j,ia+1)*SIND(ang(ia+1)))
+        END DO
+        IF (den > ZERO) sp%asym(j,k) = num/den
+      END DO
+    END DO
+
+    ! PSD size parameter
+    sp%d = dmax
+    IF (PRESENT(size_param)) THEN
+      IF (TRIM(size_param) == 'd_veq') sp%d = dveq
+    END IF
+    CALL bin_widths(sp%d, sp%dd)
+    ! Mass-size fit m = a D^b (least squares in log space), used by PSD_GAMMA
+    ALLOCATE(lx(nd), ly(nd))
+    lx = LOG(sp%d); ly = LOG(sp%mass)
+    xm = SUM(lx)/nd; ym = SUM(ly)/nd
+    sxy = SUM((lx - xm)*(ly - ym)); sxx = SUM((lx - xm)**2)
+    IF (nd > 1 .AND. sxx > ZERO) THEN
+      sp%b_ms = sxy/sxx
+    ELSE
+      sp%b_ms = 3.0_fp
+    END IF
+    sp%a_ms = EXP(ym - sp%b_ms*xm)
+
+    sp%phase = PHASE_FROZEN
+    IF (MAXVAL(sp%tgp) > 273.15_fp) sp%phase = PHASE_LIQUID
+    IF (PRESENT(phase)) sp%phase = phase
+    IF (PRESENT(approx_kind)) THEN
+      sp%approx_kind = approx_kind
+    ELSE IF (sp%phase == PHASE_LIQUID .AND. psd_type /= PSD_T08_RAIN .AND. &
+             (psd_type == PSD_GAMMA .OR. psd_type == PSD_GAMMA_FIXED_N0) .AND. sp%mu > ZERO) THEN
+      sp%approx_kind = APPROX_CLOUD_LIQUID
+    ELSE IF (sp%phase == PHASE_LIQUID) THEN
+      sp%approx_kind = APPROX_RAIN
+    ELSE
+      sp%approx_kind = APPROX_ICE
+    END IF
+  END SUBROUTINE species_from_ssdb
 
   SUBROUTINE species_destroy(sp)
     TYPE(radar_species_type), INTENT(INOUT) :: sp
@@ -321,6 +521,7 @@ CONTAINS
     IF (ALLOCATED(sp%tgrid)) DEALLOCATE(sp%tgrid)
     IF (ALLOCATED(sp%ke))    DEALLOCATE(sp%ke, sp%kb, sp%w, sp%pc1, sp%pcn)
     IF (ALLOCATED(sp%d))     DEALLOCATE(sp%d, sp%dd, sp%mass, sp%cext, sp%csca, sp%cbsc, sp%asym)
+    IF (ALLOCATED(sp%tgp))   DEALLOCATE(sp%tgp)
     sp%source = SOURCE_NONE
   END SUBROUTINE species_destroy
 
@@ -376,27 +577,44 @@ CONTAINS
       opt(I_FSCA) = pcn*opt(I_SCA)
       opt(I_GSCA) = pc1/1.5_fp*opt(I_SCA)
     CASE (SOURCE_PARTICLE)
-      CALL particle_optics_c(sp, rho, opt)
+      CALL particle_optics_c(sp, rho, t, opt)
     END SELECT
     opt(I_ATT) = hydro_approx_attenuation_c(sp%approx_kind, sp%frequency, rho, t)
   END SUBROUTINE species_optics_c
 
-  ! PSD integration. lambda is solved in real arithmetic, and the complex
-  ! part of rho is carried through d(lambda)/d(rho) = 1/(dM/dlambda).
-  SUBROUTINE particle_optics_c(sp, rho, opt)
+  ! PSD integration in complex arithmetic (complex-step derivatives).
+  ! Cross sections are interpolated linearly in temperature (clamped).
+  SUBROUTINE particle_optics_c(sp, rho, t, opt)
     TYPE(radar_species_type), INTENT(IN)  :: sp
-    COMPLEX(fp),              INTENT(IN)  :: rho
+    COMPLEX(fp),              INTENT(IN)  :: rho, t
     COMPLEX(fp),              INTENT(OUT) :: opt(N_OPT)
-    REAL(fp) :: lam, dmdl
-    COMPLEX(fp) :: lamc, nd(sp%nd), sca, gs
-    CALL solve_lambda(sp, REAL(rho), lam, dmdl)
-    lamc = CMPLX(lam, AIMAG(rho)/dmdl, fp)
-    nd = sp%n0*sp%d**sp%mu*EXP(-lamc*sp%d)*sp%dd
-    opt(I_EXT) = SUM(sp%cext*nd)
-    sca        = SUM(sp%csca*nd)
+    COMPLEX(fp) :: nd(sp%nd), sca, gs, wt
+    COMPLEX(fp) :: ce(sp%nd), cs(sp%nd), cb(sp%nd), cg(sp%nd)
+    INTEGER :: k1, k2
+    CALL psd_numbers_c(sp, rho, t, nd)
+    ! temperature weights
+    IF (sp%ntp == 1) THEN
+      k1 = 1; k2 = 1; wt = 0
+    ELSE IF (REAL(t) <= sp%tgp(1)) THEN
+      k1 = 1; k2 = 1; wt = 0
+    ELSE IF (REAL(t) >= sp%tgp(sp%ntp)) THEN
+      k1 = sp%ntp; k2 = sp%ntp; wt = 0
+    ELSE
+      DO k1 = 1, sp%ntp-1
+        IF (sp%tgp(k1+1) >= REAL(t)) EXIT
+      END DO
+      k2 = k1 + 1
+      wt = (t - sp%tgp(k1))/(sp%tgp(k2) - sp%tgp(k1))
+    END IF
+    ce = (1 - wt)*sp%cext(:,k1) + wt*sp%cext(:,k2)
+    cs = (1 - wt)*sp%csca(:,k1) + wt*sp%csca(:,k2)
+    cb = (1 - wt)*sp%cbsc(:,k1) + wt*sp%cbsc(:,k2)
+    cg = (1 - wt)*sp%asym(:,k1)*sp%csca(:,k1) + wt*sp%asym(:,k2)*sp%csca(:,k2)
+    opt(I_EXT) = SUM(ce*nd)
+    sca        = SUM(cs*nd)
     opt(I_SCA) = sca
-    opt(I_BSC) = SUM(sp%cbsc*nd)
-    gs         = SUM(sp%asym*sp%csca*nd)
+    opt(I_BSC) = SUM(cb*nd)
+    gs         = SUM(cg*nd)
     opt(I_GSCA) = gs
     ! Delta truncation with a Henyey-Greenstein phase function, written in
     ! the CRTM convention for the Legendre coefficients ((2l+1)/2 g^l)
@@ -406,6 +624,100 @@ CONTAINS
       opt(I_FSCA) = 0
     END IF
   END SUBROUTINE particle_optics_c
+
+  ! Complex min/max that pick a branch by the real part
+  ELEMENTAL FUNCTION cmin(a, b) RESULT(c)
+    COMPLEX(fp), INTENT(IN) :: a, b
+    COMPLEX(fp) :: c
+    IF (REAL(a) <= REAL(b)) THEN
+      c = a
+    ELSE
+      c = b
+    END IF
+  END FUNCTION cmin
+  ELEMENTAL FUNCTION cmax(a, b) RESULT(c)
+    COMPLEX(fp), INTENT(IN) :: a, b
+    COMPLEX(fp) :: c
+    IF (REAL(a) >= REAL(b)) THEN
+      c = a
+    ELSE
+      c = b
+    END IF
+  END FUNCTION cmax
+
+  ! Field et al. (2005) moment relation M_n = a(n,Tc) M2^b(n,Tc)
+  FUNCTION field05_moment(n, tc, m2) RESULT(mn)
+    REAL(fp),    INTENT(IN) :: n
+    COMPLEX(fp), INTENT(IN) :: tc, m2
+    COMPLEX(fp) :: mn
+    mn = 10.0_fp**poly(F05_SA)*m2**poly(F05_SB)
+  CONTAINS
+    COMPLEX(fp) FUNCTION poly(c)
+      REAL(fp), INTENT(IN) :: c(10)
+      poly = c(1) + c(2)*tc + c(3)*n + c(4)*tc*n + c(5)*tc**2 + c(6)*n**2 + &
+             c(7)*tc**2*n + c(8)*tc*n**2 + c(9)*tc**3 + c(10)*n**3
+    END FUNCTION poly
+  END FUNCTION field05_moment
+
+  ! Number concentration per size bin (m-3) holding the water content rho
+  SUBROUTINE psd_numbers_c(sp, rho, t, n)
+    TYPE(radar_species_type), INTENT(IN)  :: sp
+    COMPLEX(fp),              INTENT(IN)  :: rho, t
+    COMPLEX(fp),              INTENT(OUT) :: n(sp%nd)
+    REAL(fp), PARAMETER :: PI = 3.14159265358979323846_fp
+    REAL(fp) :: lam, dmdl, peak
+    COMPLEX(fp) :: lamc, n0, am, tk, tc, m2, m3, r, mtot
+    REAL(fp) :: bm
+    n = 0
+    IF (REAL(rho) <= 0.0_fp) RETURN
+    tk = t
+    IF (sp%t_fix > ZERO) tk = CMPLX(sp%t_fix, ZERO, fp)
+    SELECT CASE (sp%psd_type)
+    CASE (PSD_GAMMA_FIXED_N0)
+      ! lambda is solved in real arithmetic, and the complex part of rho is
+      ! carried through d(lambda)/d(rho) = 1/(dM/dlambda)
+      CALL solve_lambda(sp, REAL(rho), lam, dmdl)
+      lamc = CMPLX(lam, AIMAG(rho)/dmdl, fp)
+      n = sp%n0*sp%d**sp%mu*EXP(-lamc*sp%d)*sp%dd
+      RETURN
+    CASE (PSD_GAMMA)
+      lamc = (sp%n0*sp%a_ms*GAMMA(sp%b_ms + sp%mu + 1)/rho)**(1/(sp%b_ms + sp%mu + 1))
+      n = sp%n0*sp%d**sp%mu*EXP(-lamc*sp%d)
+    CASE (PSD_T08_RAIN, PSD_T08_SNOW, PSD_T08_GRAUPEL)
+      bm = 3.0_fp
+      IF (sp%psd_type == PSD_T08_RAIN) THEN
+        n0 = 8.0e6_fp; am = PI/6*1000.0_fp
+      ELSE IF (sp%psd_type == PSD_T08_SNOW) THEN
+        n0 = cmin(CMPLX(2.0e8_fp, ZERO, fp), 2.0e6_fp*EXP(-0.12_fp*cmin(CMPLX(-0.001_fp, ZERO, fp), tk - 273.15_fp)))
+        am = PI/6*100.0_fp
+      ELSE
+        n0 = cmax(CMPLX(1.0e4_fp, ZERO, fp), cmin(200.0_fp/(rho/sp%rho_air), CMPLX(5.0e6_fp, ZERO, fp)))
+        am = PI/6*400.0_fp
+      END IF
+      lamc = (n0*am*GAMMA(bm + 1)/rho)**(1/(bm + 1))
+      n = n0*EXP(-lamc*sp%d)
+    CASE (PSD_T08_SNOW_FIELD05)
+      tc = cmin(CMPLX(-0.1_fp, ZERO, fp), tk - 273.15_fp)
+      m2 = rho/0.069_fp
+      m3 = field05_moment(3.0_fp, tc, m2)
+      r = m2/m3
+      n = m2**4/m3**3*(0.490_fp*EXP(-r*20.78_fp*sp%d) + 17.46_fp*r**0.6357_fp*sp%d**0.6357_fp*EXP(-r*3.29_fp*sp%d))
+    END SELECT
+    ! Discretise and renormalise to the database masses (NuRTM psd_numbers)
+    peak = MAXVAL(REAL(n))
+    IF (peak > ZERO .AND. peak < HUGE(peak)) THEN
+      n = n*sp%dd/peak
+    ELSE
+      n = n*sp%dd
+    END IF
+    mtot = SUM(n*sp%mass)
+    IF (.NOT. (REAL(mtot) > ZERO) .OR. .NOT. (ABS(REAL(rho/mtot)) < HUGE(peak))) THEN
+      n = 0
+      n(1) = rho/sp%mass(1)
+      RETURN
+    END IF
+    n = n*(rho/mtot)
+  END SUBROUTINE psd_numbers_c
 
   ! Solve M(lambda) = rho for the gamma PSD slope (Newton on log(lambda))
   SUBROUTINE solve_lambda(sp, rho, lam, dmdl)

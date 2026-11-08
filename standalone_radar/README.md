@@ -23,7 +23,7 @@ active-sensor result (`CRTM_Active_Sensor`) for the same inputs, and it adds:
 mkdir build && cd build
 cmake .. -DRADAR_BUILD_TESTS=ON      # needs netCDF-Fortran
 make
-./test_radar_operator /path/to/CloudCoeff_DDA_*.nc4
+./test_radar_operator /path/to/CloudCoeff_DDA_*.nc4 [/path/to/ssdb_nurtm/mw]
 ```
 
 The test checks the TL against finite differences, the AD against the TL
@@ -128,6 +128,23 @@ a gamma PSD `N(D) = n0 D^mu exp(-λ D)`. The slope λ is solved from the
 water content for each layer, and its derivative is carried through the TL
 and AD. Single-particle data from the DDA database (Zenodo record 4646605)
 can be fed in here.
+
+`species_from_ssdb(sp, name, file, frequency, psd_type [, n0, mu, size_param, ...])`
+reads a NuRTM single-scattering database file (one habit per file, e.g.
+`ssdb_nurtm/mw/LiquidSphere.nc`, `6BulletRosette.nc`, `GemGraupel.nc`). The
+cross sections are interpolated to the radar frequency and kept on the
+database temperature grid. PSD choices, as in NuRTM:
+`PSD_GAMMA` (n0, mu, mass-size fit to the database), `PSD_T08_RAIN`,
+`PSD_T08_SNOW` (exponential, Thompson 2004 intercept), `PSD_T08_SNOW_FIELD05`
+(two-mode Field et al. 2005, the Thompson 2008 snow), `PSD_T08_GRAUPEL`, and
+`PSD_GAMMA_FIXED_N0`. The PSD is renormalised to the database particle masses.
+
+```fortran
+call species_from_ssdb(sp, 'rain', 'ssdb/LiquidSphere.nc', 13.6_fp, PSD_T08_RAIN, size_param='d_veq')
+call species_from_ssdb(sp, 'snow', 'ssdb/6BulletRosette.nc', 13.6_fp, PSD_T08_SNOW_FIELD05)
+call species_from_ssdb(sp, 'cloud_liquid', 'ssdb/LiquidSphere.nc', 13.6_fp, PSD_GAMMA, &
+                       n0=3.0e35_fp, mu=4.0_fp, size_param='d_veq')
+```
 
 Bulk optical properties can be given directly per layer in
 `prof%bulk_ext`, `bulk_sca`, `bulk_bsc` (m^-1) and `bulk_g` with

@@ -17,6 +17,8 @@ layers, no extra layers. Driver: `compare/compare_crtm.f90`; analysis:
 | B | ITU-R P.676 line by line | full, delta-truncated | yes |
 | C | ITU-R P.676 approximation | approximate formulas | yes |
 | D | ITU-R P.676 line by line | full extinction, no truncation | no (cloud backscatter on) |
+| E | ITU-R P.676 line by line | NuRTM DDA single particles + Thompson (2008) PSDs, delta-truncated | n/a |
+| F | ITU-R P.676 line by line | as E, full extinction | n/a |
 
 ## Reflectivity (1.34 million gates with echo per channel)
 
@@ -48,11 +50,10 @@ model and ODPS agree to about 2%, which moves attenuated Z by at most
 * **Cloud liquid and cloud ice backscatter is zero in CRTM.** These tables
   have a single-scatter albedo of 0, and CRTM's quality rule sets
   backscatter to zero when w ≤ 0. Turning it on (D) adds echo in 980 000
-  more gates and raises Z by several dB, up to about 18 dBZ near cloud top.
-  That is too high for small cloud particles, so I would not use the cloud
-  entries of the table for backscatter. Cloud backscatter needs proper
-  single-particle data (for example the DDA database) through
-  `species_from_particles`.
+  more gates. For gates with only cloud liquid, the table gives a median of
+  −6 dBZ against −54 dBZ from the single-particle calculation (E), so the
+  cloud-liquid entries are about 50 dB too high and should not be used for
+  backscatter. The cloud-ice entries give −17 dBZ, which is plausible.
 * **Delta truncation of the extinction** (CRTM default) removes the forward
   peak from the attenuation. Using the full extinction raises the two-way
   PIA at the surface by about 0.5% at Ku and Ka and 1.5% at W, and by up to
@@ -87,3 +88,47 @@ those layers).
 The standalone TL, AD and K also pass their own tests (TL against finite
 differences to 1e-8, AD against TL to 1e-15, K against TL to 1e-16) in 24
 configurations: `test/test_radar_operator.f90`.
+
+## Single particles from NuRTM with Thompson (2008) PSDs (variants E, F)
+
+The species are built from the NuRTM single-scattering databases
+(`ssdb_nurtm/mw`, converted from the ARTS DDA database) with
+`species_from_ssdb`, using the PSDs of the NuRTM validation runs:
+
+| Species | Habit | PSD |
+| --- | --- | --- |
+| cloud liquid | LiquidSphere | gamma, N0 = 3e35, μ = 4, on d_veq |
+| cloud ice | IceSphere | gamma, N0 = 1e10, μ = 1, on d_max |
+| rain | LiquidSphere | Thompson 2008 rain (N0 = 8e6), on d_veq |
+| snow | 6BulletRosette | Thompson 2008 snow, Field et al. (2005) two-mode |
+
+As in NuRTM, the cross sections are interpolated linearly in frequency and
+temperature, the PSD is evaluated on the database sizes and renormalised to
+the database particle masses, and the asymmetry parameter comes from F11.
+TL, AD and K pass the same tests as the other paths (6 more cases).
+
+Median Z on gates with only one species (all 60048 profiles):
+
+| Species | Ku: CRTM / E | Ka: CRTM / E | W: CRTM / E |
+| --- | --- | --- | --- |
+| rain | 2.2 / 2.3 | 2.9 / 2.9 | 2.7 / 2.6 |
+| snow | −8.4 / −1.8 | −8.2 / −2.1 | −7.3 / −3.8 |
+| cloud liquid | (0) / −54 | (0) / −54 | (0) / −54 |
+| cloud ice | (0) / −0.1 | (0) / −0.1 | (0) / −2.0 |
+
+* **Rain agrees with the CRTM table to 0.1 dB** at all three frequencies:
+  the CRTM DDA Thompson table and the NuRTM liquid spheres with the
+  Thompson rain PSD are the same physics.
+* **Snow is 3 to 6 dB higher** than CRTM. CRTM's table uses the
+  SectorSnowflake habit, which is not in the NuRTM database, and the
+  standalone run uses the 6-bullet rosette, as the NuRTM validation runs do.
+  The habit is the most likely cause.
+* **Cloud liquid** gives about −54 dBZ, realistic for the small water
+  contents in these gates.
+* **Cloud ice** with the gamma PSD (N0 = 1e10, μ = 1) gives about 0 dBZ for a
+  few mg m⁻³, which is high for cloud ice (typically −30 to −15 dBZ). That
+  PSD puts the mass in particles of a few hundred micrometres. A cloud-ice
+  PSD with more, smaller particles (or the number concentration from the
+  model) would be more realistic.
+* Full extinction (F) only changes the attenuation at W band (Zatt bias
+  −0.13 dB with truncation, −0.34 dB without).

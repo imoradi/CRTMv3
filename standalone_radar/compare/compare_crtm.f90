@@ -4,13 +4,15 @@
 ! Runs the CRTM active-sensor operator and the standalone radar operator on
 ! the same IFS profiles and writes both to a netCDF file.
 !
-! Usage: compare_crtm ifs.nc stride zenith_deg out.nc coef_dir/ cloudcoeff_dir/ cloudcoeff_file [n_jac]
+! Usage: compare_crtm ifs.nc stride zenith_deg out.nc coef_dir/ cloudcoeff_dir/ cloudcoeff_file n_jac nurtm_ssdb_dir
 !
 ! Standalone variants (per channel):
 !   A  CRTM-compatible settings, gas optical depth taken from CRTM (ODPS)
 !   B  CRTM-compatible settings, gas from ITU-R P.676 line-by-line
 !   C  approximate attenuation (ITU-R P.676 approx gas, P.838/P.840 hydrometeors)
 !   D  physical: full (unscaled) extinction, cloud backscatter included, ITU LBL gas
+!   E  NuRTM DDA single particles + Thompson (2008) PSDs, delta scaling, ITU LBL gas
+!   F  as E with full (unscaled) extinction
 !
 PROGRAM compare_crtm
   USE CRTM_Module
@@ -25,19 +27,20 @@ PROGRAM compare_crtm
   USE CRTM_AncillaryInput_Define, ONLY: CRTM_AncillaryInput_type
   USE radar_kinds,    ONLY: rfp => fp
   USE radar_gas,      ONLY: GAS_MODEL_ITU_LBL, GAS_MODEL_ITU_APPROX, GAS_MODEL_USER
-  USE radar_species,  ONLY: radar_species_type, species_from_lut
+  USE radar_species,  ONLY: radar_species_type, species_from_lut, species_from_ssdb, &
+                            PSD_GAMMA, PSD_T08_RAIN, PSD_T08_SNOW_FIELD05
   USE radar_operator
   USE netcdf
   IMPLICIT NONE
 
-  INTEGER, PARAMETER :: NV = 4      ! standalone variants
+  INTEGER, PARAMETER :: NV = 6      ! standalone variants
   INTEGER, PARAMETER :: NSP = 4     ! species: cloud liquid, cloud ice, rain, snow
   CHARACTER(16), PARAMETER :: SPNAME(NSP) = [CHARACTER(16) :: 'cloud_liquid', 'cloud_ice', 'rain', 'snow']
   INTEGER, PARAMETER :: CTYPE(NSP) = [WATER_CLOUD, ICE_CLOUD, RAIN_CLOUD, SNOW_CLOUD]
   REAL(fp), PARAMETER :: G0 = 9.80665_fp
   INTEGER, PARAMETER :: CHUNK = 200
 
-  CHARACTER(512) :: ifs_file, out_file, coef_dir, cc_dir, cc_file, arg
+  CHARACTER(512) :: ifs_file, out_file, coef_dir, cc_dir, cc_file, arg, ssdb_dir
   INTEGER :: stride, nobs, nlev, nlay, nsel, ncid, varid, dimid, i, j, k, m, ic, iv, s, n_jac
   REAL(fp) :: zenith
   REAL(fp), ALLOCATABLE :: lp(:,:), gp(:,:), tt(:,:), qq(:,:), o3(:,:), hyd(:,:,:)
@@ -63,6 +66,7 @@ PROGRAM compare_crtm
   n_jac = 0
   CALL GET_COMMAND_ARGUMENT(8, arg)
   IF (LEN_TRIM(arg) > 0) READ(arg,*) n_jac
+  CALL GET_COMMAND_ARGUMENT(9, ssdb_dir)
 
   ! ---------------------------------------------------------------- read IFS
   CALL chk(nf90_open(ifs_file, NF90_NOWRITE, ncid))
@@ -140,10 +144,30 @@ CONTAINS
     CASE (2); c%gas_model = GAS_MODEL_ITU_LBL
     CASE (3); c%gas_model = GAS_MODEL_ITU_APPROX; c%hydro_attenuation = ATTEN_APPROX
     CASE (4); c%gas_model = GAS_MODEL_ITU_LBL; c%scaling = SCALING_NONE; c%crtm_compat = .FALSE.
+    CASE (5); c%gas_model = GAS_MODEL_ITU_LBL
+    CASE (6); c%gas_model = GAS_MODEL_ITU_LBL; c%scaling = SCALING_NONE
     END SELECT
     CALL radar_init(op, c, NSP)
     DO s = 1, NSP
-      CALL species_from_lut(sp, TRIM(SPNAME(s)), TRIM(cc_dir)//TRIM(cc_file), f, c%n_streams)
+      IF (iv >= 5) THEN
+        ! NuRTM single-particle databases with the PSDs of the NuRTM validation runs
+        SELECT CASE (s)
+        CASE (1)
+          CALL species_from_ssdb(sp, 'cloud_liquid', TRIM(ssdb_dir)//'/LiquidSphere.nc', f, &
+                                 PSD_GAMMA, n0=3.0e35_fp, mu=4.0_fp, size_param='d_veq')
+        CASE (2)
+          CALL species_from_ssdb(sp, 'cloud_ice', TRIM(ssdb_dir)//'/IceSphere.nc', f, &
+                                 PSD_GAMMA, n0=1.0e10_fp, mu=1.0_fp)
+        CASE (3)
+          CALL species_from_ssdb(sp, 'rain', TRIM(ssdb_dir)//'/LiquidSphere.nc', f, &
+                                 PSD_T08_RAIN, size_param='d_veq')
+        CASE (4)
+          CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, &
+                                 PSD_T08_SNOW_FIELD05)
+        END SELECT
+      ELSE
+        CALL species_from_lut(sp, TRIM(SPNAME(s)), TRIM(cc_dir)//TRIM(cc_file), f, c%n_streams)
+      END IF
       CALL radar_add_species(op, s, sp)
     END DO
   END SUBROUTINE setup_variant
@@ -283,7 +307,8 @@ CONTAINS
 
   SUBROUTINE write_output()
     INTEGER :: dl, do_, dc, dv, ds
-    CHARACTER(16) :: vn(4) = [CHARACTER(16) :: 'A_crtmgas', 'B_itulbl', 'C_approx', 'D_physical']
+    CHARACTER(16) :: vn(NV) = [CHARACTER(16) :: 'A_crtmgas', 'B_itulbl', 'C_approx', 'D_physical', &
+                                                'E_nurtm_delta', 'F_nurtm_full']
     CALL chk(nf90_create(out_file, IOR(NF90_NETCDF4, NF90_CLOBBER), id))
     CALL chk(nf90_def_dim(id, 'layer', nlay, dl))
     CALL chk(nf90_def_dim(id, 'obs', nsel, do_))
@@ -302,7 +327,8 @@ CONTAINS
     CALL chk(nf90_put_att(id, NF90_GLOBAL, 'variants', &
          'A: CRTM-compatible, CRTM gas OD; B: CRTM-compatible, ITU-R P.676 LBL gas; '// &
          'C: approximate gas (P.676 Annex 2) and hydrometeor (P.838/P.840) attenuation; '// &
-         'D: unscaled extinction, cloud backscatter on, LBL gas'))
+         'D: unscaled extinction, cloud backscatter on, LBL gas; '// &
+         'E: NuRTM DDA particles + Thompson 2008 PSD, delta scaling, LBL gas; F: as E, unscaled extinction'))
     CALL chk(nf90_put_att(id, NF90_GLOBAL, 'zenith_deg', zenith))
     CALL chk(nf90_enddef(id))
     CALL chk(nf90_put_var(id, v(1), freq)); CALL chk(nf90_put_var(id, v(2), sel))
@@ -313,7 +339,7 @@ CONTAINS
     CALL chk(nf90_put_var(id, v(9), s_z)); CALL chk(nf90_put_var(id, v(10), s_zatt))
     CALL chk(nf90_put_var(id, v(11), s_tcum)); CALL chk(nf90_put_var(id, v(12), s_thyd))
     CALL chk(nf90_close(id))
-    WRITE(*,*) 'wrote ', TRIM(out_file), ' (variants: ', (TRIM(vn(i))//' ', i=1,4), ')'
+    WRITE(*,*) 'wrote ', TRIM(out_file), ' (variants: ', (TRIM(vn(i))//' ', i=1,NV), ')'
   END SUBROUTINE write_output
 
   SUBROUTINE defv(name, dims, units)
