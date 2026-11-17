@@ -1,5 +1,5 @@
 !
-! radar_hydro_approx
+! asrt_hydro_approx
 !
 ! Approximate specific attenuation by hydrometeors, using formulas commonly
 ! used in the radar and propagation communities. They need only the water
@@ -26,8 +26,8 @@
 ! Inputs: f (GHz), water content rho (kg m-3), temperature t (K).
 ! Output: one-way absorption coefficient (Np m-1).
 !
-MODULE radar_hydro_approx
-  USE radar_kinds, ONLY: fp, DB_TO_NP
+MODULE asrt_hydro_approx
+  USE asrt_kinds, ONLY: fp, DB_TO_NP
   IMPLICIT NONE
   PRIVATE
   PUBLIC :: APPROX_NONE, APPROX_CLOUD_LIQUID, APPROX_ICE, APPROX_RAIN
@@ -133,4 +133,4 @@ CONTAINS
     alpha = alpha*DB_TO_NP*1.0e-3_fp
   END FUNCTION hydro_approx_attenuation_c
 
-END MODULE radar_hydro_approx
+END MODULE asrt_hydro_approx

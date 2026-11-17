@@ -1,5 +1,5 @@
 !
-! radar_species
+! asrt_species
 !
 ! Optical properties of one hydrometeor species at the radar frequency.
 ! A species gets its properties from one of three sources:
@@ -16,7 +16,7 @@
 !                   from the water content, so the water content stays the
 !                   control variable for the TL/AD.
 !   (per-layer bulk properties given directly by the caller are handled in
-!    radar_operator, not here.)
+!    asrt_operator, not here.)
 !
 ! For each layer the species returns the volume coefficients (m-1)
 !   ext  extinction             sca  scattering
@@ -26,16 +26,16 @@
 !   att  attenuation coefficient from the approximate formulas
 ! and their derivatives with respect to water content and temperature.
 !
-MODULE radar_species
-  USE radar_kinds,        ONLY: fp, ZERO, ONE, CSTEP
-  USE radar_interp,       ONLY: interp_weights_c
-  USE radar_hydro_approx, ONLY: APPROX_NONE, APPROX_CLOUD_LIQUID, APPROX_ICE, APPROX_RAIN, &
+MODULE asrt_species
+  USE asrt_kinds,        ONLY: fp, ZERO, ONE, CSTEP
+  USE asrt_interp,       ONLY: interp_weights_c
+  USE asrt_hydro_approx, ONLY: APPROX_NONE, APPROX_CLOUD_LIQUID, APPROX_ICE, APPROX_RAIN, &
                                 hydro_approx_attenuation_c
   USE netcdf
   IMPLICIT NONE
   PRIVATE
 
-  PUBLIC :: radar_species_type
+  PUBLIC :: asrt_species_type
   PUBLIC :: SOURCE_NONE, SOURCE_LUT, SOURCE_PARTICLE
   PUBLIC :: PHASE_LIQUID, PHASE_FROZEN
   PUBLIC :: PSD_GAMMA_FIXED_N0, PSD_GAMMA, PSD_T08_RAIN, PSD_T08_SNOW, PSD_T08_SNOW_FIELD05, PSD_T08_GRAUPEL, PSD_T08_ICE, &
@@ -81,7 +81,7 @@ MODULE radar_species
        'LargeBlockAggregate', 'IconSnow', 'IconHail', 'GemGraupel', 'GemSnow', &
        'GemHail', 'IceSphere' ]
 
-  TYPE :: radar_species_type
+  TYPE :: asrt_species_type
     CHARACTER(64) :: name = ''
     INTEGER  :: source = SOURCE_NONE
     INTEGER  :: phase  = PHASE_LIQUID
@@ -118,7 +118,7 @@ MODULE radar_species
     REAL(fp), ALLOCATABLE :: dd(:)         ! quadrature weights (m)
     REAL(fp), ALLOCATABLE :: mass(:)       ! particle mass (kg)
     REAL(fp), ALLOCATABLE :: cext(:,:), csca(:,:), cbsc(:,:), asym(:,:)   ! (nd, ntp) m2, m2, m2, -
-  END TYPE radar_species_type
+  END TYPE asrt_species_type
 
 CONTAINS
 
@@ -131,7 +131,7 @@ CONTAINS
     INTEGER,      INTENT(IN) :: status
     CHARACTER(*), INTENT(IN) :: what
     IF (status /= NF90_NOERR) THEN
-      WRITE(*,'(a)') 'radar_species: netCDF error ('//TRIM(what)//'): '//TRIM(nf90_strerror(status))
+      WRITE(*,'(a)') 'asrt_species: netCDF error ('//TRIM(what)//'): '//TRIM(nf90_strerror(status))
       ERROR STOP 1
     END IF
   END SUBROUTINE nc_check
@@ -147,7 +147,7 @@ CONTAINS
   !   habit (optional) overrides the default habit of snow/graupel/hail/ice.
   !
   SUBROUTINE species_from_lut(sp, name, filename, frequency, n_streams, habit)
-    TYPE(radar_species_type), INTENT(OUT) :: sp
+    TYPE(asrt_species_type), INTENT(OUT) :: sp
     CHARACTER(*),             INTENT(IN)  :: name, filename
     REAL(fp),                 INTENT(IN)  :: frequency
     INTEGER,                  INTENT(IN)  :: n_streams
@@ -169,7 +169,7 @@ CONTAINS
     CASE (8);  loff = 12
     CASE (16); loff = 21
     CASE DEFAULT
-      WRITE(*,*) 'radar_species: n_streams must be 4, 6, 8 or 16'
+      WRITE(*,*) 'asrt_species: n_streams must be 4, 6, 8 or 16'
       ERROR STOP 1
     END SELECT
 
@@ -200,7 +200,7 @@ CONTAINS
         IF (TRIM(DDA_HABITS(j)) == TRIM(hname)) ih = j
       END DO
       IF (ih == 0) THEN
-        WRITE(*,*) 'radar_species: unknown habit '//TRIM(hname)
+        WRITE(*,*) 'asrt_species: unknown habit '//TRIM(hname)
         ERROR STOP 1
       END IF
     END IF
@@ -305,7 +305,7 @@ CONTAINS
   !
   SUBROUTINE species_from_particles(sp, name, phase, frequency, d, mass, cext, csca, cbsc, asym, &
                                     n0, mu, n_streams, approx_kind)
-    TYPE(radar_species_type), INTENT(OUT) :: sp
+    TYPE(asrt_species_type), INTENT(OUT) :: sp
     CHARACTER(*),             INTENT(IN)  :: name
     INTEGER,                  INTENT(IN)  :: phase
     REAL(fp),                 INTENT(IN)  :: frequency, d(:), mass(:), cext(:), csca(:), cbsc(:), asym(:)
@@ -353,7 +353,7 @@ CONTAINS
   !   the layer temperature (Field 2007 held within -70 to -0.1 C).
   !
   SUBROUTINE species_default_ssdb(sp, name, ssdb_dir, frequency, n_streams)
-    TYPE(radar_species_type), INTENT(OUT) :: sp
+    TYPE(asrt_species_type), INTENT(OUT) :: sp
     CHARACTER(*),             INTENT(IN)  :: name, ssdb_dir
     REAL(fp),                 INTENT(IN)  :: frequency
     INTEGER,        OPTIONAL, INTENT(IN)  :: n_streams
@@ -423,7 +423,7 @@ CONTAINS
   !
   SUBROUTINE species_from_ssdb(sp, name, filename, frequency, psd_type, n0, mu, size_param, &
                                n_streams, phase, approx_kind, rho_air, t_fix, ni)
-    TYPE(radar_species_type), INTENT(OUT) :: sp
+    TYPE(asrt_species_type), INTENT(OUT) :: sp
     CHARACTER(*),             INTENT(IN)  :: name, filename
     REAL(fp),                 INTENT(IN)  :: frequency
     INTEGER,                  INTENT(IN)  :: psd_type
@@ -572,7 +572,7 @@ CONTAINS
   END SUBROUTINE species_from_ssdb
 
   SUBROUTINE species_destroy(sp)
-    TYPE(radar_species_type), INTENT(INOUT) :: sp
+    TYPE(asrt_species_type), INTENT(INOUT) :: sp
     IF (ALLOCATED(sp%x))     DEALLOCATE(sp%x)
     IF (ALLOCATED(sp%tgrid)) DEALLOCATE(sp%tgrid)
     IF (ALLOCATED(sp%ke))    DEALLOCATE(sp%ke, sp%kb, sp%w, sp%pc1, sp%pcn)
@@ -587,7 +587,7 @@ CONTAINS
   !   opt(N_OPT) volume coefficients (m-1), see I_* indices
   !
   SUBROUTINE species_optics_c(sp, rho, t, opt)
-    TYPE(radar_species_type), INTENT(IN)  :: sp
+    TYPE(asrt_species_type), INTENT(IN)  :: sp
     COMPLEX(fp),              INTENT(IN)  :: rho, t
     COMPLEX(fp),              INTENT(OUT) :: opt(N_OPT)
     COMPLEX(fp) :: wx(4), wt(4), ke, kb, w, pc1, pcn
@@ -641,7 +641,7 @@ CONTAINS
   ! PSD integration in complex arithmetic (complex-step derivatives).
   ! Cross sections are interpolated linearly in temperature (clamped).
   SUBROUTINE particle_optics_c(sp, rho, t, opt)
-    TYPE(radar_species_type), INTENT(IN)  :: sp
+    TYPE(asrt_species_type), INTENT(IN)  :: sp
     COMPLEX(fp),              INTENT(IN)  :: rho, t
     COMPLEX(fp),              INTENT(OUT) :: opt(N_OPT)
     COMPLEX(fp) :: nd(sp%nd), sca, gs, wt
@@ -735,7 +735,7 @@ CONTAINS
 
   ! Number concentration per size bin (m-3) holding the water content rho
   SUBROUTINE psd_numbers_c(sp, rho, t, n)
-    TYPE(radar_species_type), INTENT(IN)  :: sp
+    TYPE(asrt_species_type), INTENT(IN)  :: sp
     COMPLEX(fp),              INTENT(IN)  :: rho, t
     COMPLEX(fp),              INTENT(OUT) :: n(sp%nd)
     REAL(fp), PARAMETER :: PI = 3.14159265358979323846_fp
@@ -834,7 +834,7 @@ CONTAINS
 
   ! Solve M(lambda) = rho for the gamma PSD slope (Newton on log(lambda))
   SUBROUTINE solve_lambda(sp, rho, lam, dmdl)
-    TYPE(radar_species_type), INTENT(IN)  :: sp
+    TYPE(asrt_species_type), INTENT(IN)  :: sp
     REAL(fp),                 INTENT(IN)  :: rho
     REAL(fp),                 INTENT(OUT) :: lam, dmdl
     REAL(fp) :: x, xlo, xhi, m, nd(sp%nd), f, fx
@@ -870,7 +870,7 @@ CONTAINS
 
   ! Real-valued optics
   SUBROUTINE species_optics(sp, rho, t, opt)
-    TYPE(radar_species_type), INTENT(IN)  :: sp
+    TYPE(asrt_species_type), INTENT(IN)  :: sp
     REAL(fp),                 INTENT(IN)  :: rho, t
     REAL(fp),                 INTENT(OUT) :: opt(N_OPT)
     COMPLEX(fp) :: oc(N_OPT)
@@ -880,7 +880,7 @@ CONTAINS
 
   ! Optics and derivatives with respect to rho and t
   SUBROUTINE species_optics_deriv(sp, rho, t, opt, dopt_drho, dopt_dt)
-    TYPE(radar_species_type), INTENT(IN)  :: sp
+    TYPE(asrt_species_type), INTENT(IN)  :: sp
     REAL(fp),                 INTENT(IN)  :: rho, t
     REAL(fp),                 INTENT(OUT) :: opt(N_OPT), dopt_drho(N_OPT), dopt_dt(N_OPT)
     COMPLEX(fp) :: oc(N_OPT)
@@ -898,4 +898,4 @@ CONTAINS
     dopt_dt = AIMAG(oc)/ht
   END SUBROUTINE species_optics_deriv
 
-END MODULE radar_species
+END MODULE asrt_species

@@ -1,5 +1,5 @@
 !
-! radar_gas
+! asrt_gas
 !
 ! Specific attenuation of microwaves by atmospheric gases (O2, N2 and H2O).
 !
@@ -21,8 +21,8 @@
 !   q    specific humidity (kg/kg)
 ! Output: one-way power absorption coefficient (Np/m).
 !
-MODULE radar_gas
-  USE radar_kinds, ONLY: fp, DB_TO_NP, EPS_WV, CSTEP
+MODULE asrt_gas
+  USE asrt_kinds, ONLY: fp, DB_TO_NP, EPS_WV, CSTEP
   IMPLICIT NONE
   PRIVATE
   PUBLIC :: GAS_MODEL_NONE, GAS_MODEL_ITU_LBL, GAS_MODEL_ITU_APPROX, GAS_MODEL_USER
@@ -320,4 +320,4 @@ CONTAINS
     dalpha_dq = AIMAG(a)/hq
   END SUBROUTINE gas_absorption_deriv
 
-END MODULE radar_gas
+END MODULE asrt_gas

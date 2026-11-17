@@ -1,7 +1,7 @@
 !
 ! compare_crtm
 !
-! Runs the CRTM active-sensor operator and the standalone radar operator on
+! Runs the CRTM active-sensor operator and ASRT on
 ! the same IFS profiles and writes both to a netCDF file.
 !
 ! Usage: compare_crtm ifs.nc stride zenith_deg out.nc coef_dir/ cloudcoeff_dir/ cloudcoeff_file n_jac nurtm_ssdb_dir [snow_habit]
@@ -14,7 +14,7 @@
 !   D  physical: full (unscaled) extinction, cloud backscatter included, ITU LBL gas
 !   E  NuRTM DDA single particles with the default temperature-dependent PSDs
 !      (species_default_ssdb), delta scaling, ITU LBL gas.
-!      RADAR_SNOW_PSD=f07m_235 | t08_field05 | exponential replaces the snow PSD
+!      ASRT_SNOW_PSD=f07m_235 | t08_field05 | exponential replaces the snow PSD
 !   F  as E with full (unscaled) extinction
 !
 PROGRAM compare_crtm
@@ -28,11 +28,11 @@ PROGRAM compare_crtm
   USE CRTM_AtmOptics_Define,   ONLY: CRTM_AtmOptics_type, CRTM_AtmOptics_Create, CRTM_AtmOptics_Destroy, &
                                      CRTM_AtmOptics_Zero
   USE CRTM_AncillaryInput_Define, ONLY: CRTM_AncillaryInput_type
-  USE radar_kinds,    ONLY: rfp => fp
-  USE radar_gas,      ONLY: GAS_MODEL_ITU_LBL, GAS_MODEL_ITU_APPROX, GAS_MODEL_USER
-  USE radar_species,  ONLY: radar_species_type, species_from_lut, species_from_ssdb, species_default_ssdb, &
+  USE asrt_kinds,    ONLY: rfp => fp
+  USE asrt_gas,      ONLY: GAS_MODEL_ITU_LBL, GAS_MODEL_ITU_APPROX, GAS_MODEL_USER
+  USE asrt_species,  ONLY: asrt_species_type, species_from_lut, species_from_ssdb, species_default_ssdb, &
                             PSD_GAMMA, PSD_T08_RAIN, PSD_T08_SNOW_FIELD05, PSD_T08_ICE, PSD_T08_SNOW, PSD_F07_MIDLAT
-  USE radar_operator
+  USE asrt_operator
   USE netcdf
   IMPLICIT NONE
 
@@ -57,7 +57,7 @@ PROGRAM compare_crtm
   REAL(4), ALLOCATABLE :: c_z(:,:,:), c_zatt(:,:,:), c_tgas(:,:,:)
   REAL(4), ALLOCATABLE :: s_z(:,:,:,:), s_zatt(:,:,:,:), s_tcum(:,:,:,:), s_thyd(:,:,:,:)
   REAL(4), ALLOCATABLE :: o_hgt(:,:), o_t(:,:), o_wc(:,:,:)
-  TYPE(radar_operator_type) :: ops(3, NV)
+  TYPE(asrt_operator_type) :: ops(3, NV)
   INTEGER :: id, v(20), nv_
 
   CALL GET_COMMAND_ARGUMENT(1, ifs_file)
@@ -138,11 +138,11 @@ CONTAINS
   END SUBROUTINE getv
 
   SUBROUTINE setup_variant(op, iv, f)
-    TYPE(radar_operator_type), INTENT(OUT) :: op
+    TYPE(asrt_operator_type), INTENT(OUT) :: op
     INTEGER, INTENT(IN) :: iv
     REAL(fp), INTENT(IN) :: f
-    TYPE(radar_config_type) :: c
-    TYPE(radar_species_type) :: sp
+    TYPE(asrt_config_type) :: c
+    TYPE(asrt_species_type) :: sp
     INTEGER :: s
     c%frequency = f
     c%platform = PLATFORM_SPACEBORNE
@@ -154,11 +154,11 @@ CONTAINS
     CASE (5); c%gas_model = GAS_MODEL_ITU_LBL
     CASE (6); c%gas_model = GAS_MODEL_ITU_LBL; c%scaling = SCALING_NONE
     END SELECT
-    CALL radar_init(op, c, NSP)
+    CALL asrt_init(op, c, NSP)
     DO s = 1, NSP
       IF (iv >= 5) THEN
         ! NuRTM single-particle databases with the default temperature-dependent PSDs
-        CALL GET_ENVIRONMENT_VARIABLE('RADAR_SNOW_PSD', arg)
+        CALL GET_ENVIRONMENT_VARIABLE('ASRT_SNOW_PSD', arg)
         IF (s == 4 .AND. TRIM(arg) == 'f07m_235') THEN
           ! the PSD the CRTM DDA tables were built with (Field 2007 mid-latitude, 235 K)
           CALL species_from_ssdb(sp, 'snow', TRIM(ssdb_dir)//'/6BulletRosette.nc', f, PSD_F07_MIDLAT, &
@@ -178,7 +178,7 @@ CONTAINS
           CALL species_from_lut(sp, TRIM(SPNAME(s)), TRIM(cc_dir)//TRIM(cc_file), f, c%n_streams)
         END IF
       END IF
-      CALL radar_add_species(op, s, sp)
+      CALL asrt_add_species(op, s, sp)
     END DO
   END SUBROUTINE setup_variant
 
@@ -186,7 +186,7 @@ CONTAINS
   SUBROUTINE build_inputs(io, atm, prof)
     INTEGER, INTENT(IN) :: io
     TYPE(CRTM_Atmosphere_type), INTENT(INOUT) :: atm
-    TYPE(radar_profile_type),   INTENT(INOUT) :: prof
+    TYPE(asrt_profile_type),   INTENT(INOUT) :: prof
     INTEGER :: k, s
     REAL(fp) :: dp, z(0:nlay)
     atm%Climatology = US_STANDARD_ATMOSPHERE
@@ -251,11 +251,11 @@ CONTAINS
     TYPE(CRTM_Geometry_type),   ALLOCATABLE :: geo(:)
     TYPE(CRTM_Options_type),    ALLOCATABLE :: opt(:)
     TYPE(CRTM_RTSolution_type), ALLOCATABLE :: rts(:,:)
-    TYPE(radar_profile_type),   ALLOCATABLE :: prof(:)
-    TYPE(radar_output_type) :: out
+    TYPE(asrt_profile_type),   ALLOCATABLE :: prof(:)
+    TYPE(asrt_output_type) :: out
     REAL(fp) :: tgas(nlay,3)
     INTEGER :: i0, i1, np, ip, n, ic, iv, sidx
-    CALL radar_output_create(out, nlay)
+    CALL asrt_output_create(out, nlay)
     DO i0 = 1, nsel, CHUNK
       i1 = MIN(nsel, i0 + CHUNK - 1)
       np = i1 - i0 + 1
@@ -264,7 +264,7 @@ CONTAINS
       CALL CRTM_Surface_Create(sfc, 0)
       DO ip = 1, np
         atm(ip)%Add_Extra_Layers = .FALSE.
-        CALL radar_profile_create(prof(ip), nlay, NSP)
+        CALL asrt_profile_create(prof(ip), nlay, NSP)
         CALL build_inputs(sel(i0+ip-1), atm(ip), prof(ip))
         sfc(ip)%Water_Coverage = 1.0_fp; sfc(ip)%Water_Temperature = 290.0_fp
         sfc(ip)%Wind_Speed = 5.0_fp; sfc(ip)%Salinity = 33.0_fp
@@ -294,12 +294,12 @@ CONTAINS
       !$OMP PARALLEL DO PRIVATE(ip, tgas, ic, iv, out) SCHEDULE(dynamic)
       DO ip = 1, np
         CALL crtm_gas_od(atm(ip), geo(ip), tgas)
-        CALL radar_output_create(out, nlay)
+        CALL asrt_output_create(out, nlay)
         DO ic = 1, 3
           c_tgas(:,i0+ip-1,ic) = REAL(tgas(:,ic), 4)
           DO iv = 1, NV
             prof(ip)%tau_gas = tgas(:,ic)
-            CALL radar_forward(ops(ic,iv), prof(ip), out)
+            CALL asrt_forward(ops(ic,iv), prof(ip), out)
             s_z(:,i0+ip-1,ic,iv) = REAL(out%z_dbz, 4)
             s_zatt(:,i0+ip-1,ic,iv) = REAL(out%zatt_dbz, 4)
             s_tcum(:,i0+ip-1,ic,iv) = REAL(out%tau_cum, 4)
@@ -376,8 +376,8 @@ CONTAINS
     TYPE(CRTM_Geometry_type)   :: geo(1)
     TYPE(CRTM_Options_type)    :: opt(1)
     TYPE(CRTM_RTSolution_type) :: rts(1,1), rts_k(1,1)
-    TYPE(radar_profile_type) :: prof
-    TYPE(radar_k_type) :: kk
+    TYPE(asrt_profile_type) :: prof
+    TYPE(asrt_k_type) :: kk
     TYPE(CRTM_ChannelInfo_type) :: ci(1)
     REAL(fp) :: tgas(nlay,3), dz(nlay)
     REAL(4), ALLOCATABLE :: jc(:,:,:,:,:), js(:,:,:,:,:)
@@ -391,12 +391,12 @@ CONTAINS
     END DO
     ALLOCATE(jc(nlay,nlay,NSP,3,nj), js(nlay,nlay,NSP,3,nj))
     jc = 0; js = 0
-    CALL radar_k_create(kk, nlay, NSP)
+    CALL asrt_k_create(kk, nlay, NSP)
     DO ij = 1, nj
       CALL CRTM_Atmosphere_Create(atm, nlay, 2, NSP, 0)
       CALL CRTM_Surface_Create(sfc, 0)
       atm(1)%Add_Extra_Layers = .FALSE.
-      CALL radar_profile_create(prof, nlay, NSP)
+      CALL asrt_profile_create(prof, nlay, NSP)
       CALL build_inputs(sel(pick(ij)), atm(1), prof)
       sfc(1)%Water_Coverage = 1.0_fp; sfc(1)%Water_Temperature = 290.0_fp
       sfc(1)%Wind_Speed = 5.0_fp; sfc(1)%Salinity = 33.0_fp
@@ -409,7 +409,7 @@ CONTAINS
         err = CRTM_ChannelInfo_Subset(ci(1), Channel_Subset=[chan_of(ic)])
         ! standalone
         prof%tau_gas = tgas(:,ic)
-        CALL radar_k(ops(ic,1), prof, OUT_ZATT_DBZ, kk)
+        CALL asrt_k(ops(ic,1), prof, OUT_ZATT_DBZ, kk)
         DO s = 1, NSP
           DO g = 1, nlay
             js(g,:,s,ic,ij) = REAL(kk%rho(g,:,s)/dz, 4)      ! per kg m-2

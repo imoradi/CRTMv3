@@ -1,19 +1,19 @@
 !
-! radar_simple
+! asrt_simple
 !
 ! Simple interface for a host model (e.g. GEOS). Set up one handle per
-! radar frequency once, then call radar_simple_run for each column.
+! radar frequency once, then call asrt_simple_run for each column.
 !
-!   CALL radar_simple_init(handle, frequency_ghz, cloudcoeff_file, species, &
+!   CALL asrt_simple_init(handle, frequency_ghz, cloudcoeff_file, species, &
 !                          platform=PLATFORM_SPACEBORNE)
-!   CALL radar_simple_run(handle, zenith_deg, p_hpa, t_k, q_kgkg, z_int_m, wc_kgm3, &
+!   CALL asrt_simple_run(handle, zenith_deg, p_hpa, t_k, q_kgkg, z_int_m, wc_kgm3, &
 !                         z_dbz, zatt_dbz, z_lin=..., zatt_lin=..., tau=..., &
 !                         tau_cum=..., pia=...)
 !
 !   species  : names of the hydrometeor columns of wc_kgm3, e.g.
 !              [character(16) :: 'cloud_liquid', 'cloud_ice', 'rain', 'snow', 'graupel']
 !   wc_kgm3  : hydrometeor mass content (kg m-3), (n_layers, n_species);
-!              radar_mixing_ratio_to_content converts mixing ratios.
+!              asrt_mixing_ratio_to_content converts mixing ratios.
 !   z_dbz    : reflectivity without attenuation (dBZ)
 !   zatt_dbz : reflectivity attenuated along the beam at zenith_deg (dBZ)
 !   tau      : vertical one-way optical depth of each layer (gas + hydrometeors)
@@ -24,32 +24,32 @@
 !
 ! Layer 1 is the top of the column (z_int(0) is the top interface).
 !
-MODULE radar_simple
-  USE radar_kinds
-  USE radar_species,  ONLY: radar_species_type, species_from_lut, species_default_ssdb
-  USE radar_operator
+MODULE asrt_simple
+  USE asrt_kinds
+  USE asrt_species,  ONLY: asrt_species_type, species_from_lut, species_default_ssdb
+  USE asrt_operator
   IMPLICIT NONE
   PRIVATE
-  PUBLIC :: radar_simple_init, radar_simple_init_ssdb, radar_simple_run, radar_simple_destroy
-  PUBLIC :: radar_simple_operator
-  PUBLIC :: radar_mixing_ratio_to_content
+  PUBLIC :: asrt_simple_init, asrt_simple_init_ssdb, asrt_simple_run, asrt_simple_destroy
+  PUBLIC :: asrt_simple_operator
+  PUBLIC :: asrt_mixing_ratio_to_content
   PUBLIC :: PLATFORM_SPACEBORNE, PLATFORM_GROUND
 
   INTEGER, PARAMETER :: MAX_HANDLES = 32
-  TYPE(radar_operator_type), SAVE, TARGET :: ops(MAX_HANDLES)
+  TYPE(asrt_operator_type), SAVE, TARGET :: ops(MAX_HANDLES)
 
 CONTAINS
 
-  SUBROUTINE radar_simple_init(handle, frequency, cloudcoeff_file, species, platform, config, habits)
+  SUBROUTINE asrt_simple_init(handle, frequency, cloudcoeff_file, species, platform, config, habits)
     INTEGER,                 INTENT(OUT) :: handle
     REAL(fp),                INTENT(IN)  :: frequency
     CHARACTER(*),            INTENT(IN)  :: cloudcoeff_file
     CHARACTER(*),            INTENT(IN)  :: species(:)
     INTEGER,       OPTIONAL, INTENT(IN)  :: platform
-    TYPE(radar_config_type), OPTIONAL, INTENT(IN) :: config
+    TYPE(asrt_config_type), OPTIONAL, INTENT(IN) :: config
     CHARACTER(*),  OPTIONAL, INTENT(IN)  :: habits(:)
-    TYPE(radar_config_type)  :: c
-    TYPE(radar_species_type) :: sp
+    TYPE(asrt_config_type)  :: c
+    TYPE(asrt_species_type) :: sp
     INTEGER :: i
     handle = 0
     DO i = 1, MAX_HANDLES
@@ -59,38 +59,38 @@ CONTAINS
       END IF
     END DO
     IF (handle == 0) THEN
-      WRITE(*,*) 'radar_simple_init: no free handle'
+      WRITE(*,*) 'asrt_simple_init: no free handle'
       ERROR STOP 1
     END IF
     IF (PRESENT(config)) c = config
     c%frequency = frequency
     IF (PRESENT(platform)) c%platform = platform
-    CALL radar_init(ops(handle), c, SIZE(species))
+    CALL asrt_init(ops(handle), c, SIZE(species))
     DO i = 1, SIZE(species)
       IF (PRESENT(habits)) THEN
         CALL species_from_lut(sp, TRIM(species(i)), cloudcoeff_file, frequency, c%n_streams, habit=TRIM(habits(i)))
       ELSE
         CALL species_from_lut(sp, TRIM(species(i)), cloudcoeff_file, frequency, c%n_streams)
       END IF
-      CALL radar_add_species(ops(handle), i, sp)
+      CALL asrt_add_species(ops(handle), i, sp)
     END DO
-  END SUBROUTINE radar_simple_init
+  END SUBROUTINE asrt_simple_init
 
   !
-  ! radar_simple_init_ssdb: as radar_simple_init, but the species come from the
+  ! asrt_simple_init_ssdb: as asrt_simple_init, but the species come from the
   ! NuRTM single-particle databases in ssdb_dir with the temperature-dependent
   ! PSDs of species_default_ssdb (cloud_liquid, rain, cloud_ice, snow, graupel,
   ! hail). Unless a config is given, the full (unscaled) extinction is used.
   !
-  SUBROUTINE radar_simple_init_ssdb(handle, frequency, ssdb_dir, species, platform, config)
+  SUBROUTINE asrt_simple_init_ssdb(handle, frequency, ssdb_dir, species, platform, config)
     INTEGER,                 INTENT(OUT) :: handle
     REAL(fp),                INTENT(IN)  :: frequency
     CHARACTER(*),            INTENT(IN)  :: ssdb_dir
     CHARACTER(*),            INTENT(IN)  :: species(:)
     INTEGER,       OPTIONAL, INTENT(IN)  :: platform
-    TYPE(radar_config_type), OPTIONAL, INTENT(IN) :: config
-    TYPE(radar_config_type)  :: c
-    TYPE(radar_species_type) :: sp
+    TYPE(asrt_config_type), OPTIONAL, INTENT(IN) :: config
+    TYPE(asrt_config_type)  :: c
+    TYPE(asrt_species_type) :: sp
     INTEGER :: i
     handle = 0
     DO i = 1, MAX_HANDLES
@@ -100,7 +100,7 @@ CONTAINS
       END IF
     END DO
     IF (handle == 0) THEN
-      WRITE(*,*) 'radar_simple_init_ssdb: no free handle'
+      WRITE(*,*) 'asrt_simple_init_ssdb: no free handle'
       ERROR STOP 1
     END IF
     IF (PRESENT(config)) THEN
@@ -111,36 +111,36 @@ CONTAINS
     END IF
     c%frequency = frequency
     IF (PRESENT(platform)) c%platform = platform
-    CALL radar_init(ops(handle), c, SIZE(species))
+    CALL asrt_init(ops(handle), c, SIZE(species))
     DO i = 1, SIZE(species)
       CALL species_default_ssdb(sp, TRIM(species(i)), ssdb_dir, frequency, c%n_streams)
-      CALL radar_add_species(ops(handle), i, sp)
+      CALL asrt_add_species(ops(handle), i, sp)
     END DO
-  END SUBROUTINE radar_simple_init_ssdb
+  END SUBROUTINE asrt_simple_init_ssdb
 
   ! Access the operator behind a handle (for TL/AD/K or to add particle species)
-  FUNCTION radar_simple_operator(handle) RESULT(op)
+  FUNCTION asrt_simple_operator(handle) RESULT(op)
     INTEGER, INTENT(IN) :: handle
-    TYPE(radar_operator_type), POINTER :: op
+    TYPE(asrt_operator_type), POINTER :: op
     op => ops(handle)
-  END FUNCTION radar_simple_operator
+  END FUNCTION asrt_simple_operator
 
-  SUBROUTINE radar_simple_run(handle, zenith, p, t, q, z_int, wc, z_dbz, zatt_dbz, &
+  SUBROUTINE asrt_simple_run(handle, zenith, p, t, q, z_int, wc, z_dbz, zatt_dbz, &
                               z_lin, zatt_lin, tau, tau_cum, pia)
     INTEGER,  INTENT(IN)  :: handle
     REAL(fp), INTENT(IN)  :: zenith, p(:), t(:), q(:), z_int(0:), wc(:,:)
     REAL(fp), INTENT(OUT) :: z_dbz(:), zatt_dbz(:)
     REAL(fp), OPTIONAL, INTENT(OUT) :: z_lin(:), zatt_lin(:), tau(:), tau_cum(:), pia(:)
-    TYPE(radar_profile_type) :: prof
-    TYPE(radar_output_type)  :: out
+    TYPE(asrt_profile_type) :: prof
+    TYPE(asrt_output_type)  :: out
     INTEGER :: n
     n = SIZE(p)
-    CALL radar_profile_create(prof, n, ops(handle)%n_species)
+    CALL asrt_profile_create(prof, n, ops(handle)%n_species)
     prof%zenith = zenith
     prof%p = p; prof%t = t; prof%q = q; prof%z_int = z_int(0:n)
     prof%rho = wc(1:n, 1:ops(handle)%n_species)
-    CALL radar_output_create(out, n)
-    CALL radar_forward(ops(handle), prof, out)
+    CALL asrt_output_create(out, n)
+    CALL asrt_forward(ops(handle), prof, out)
     z_dbz = out%z_dbz
     zatt_dbz = out%zatt_dbz
     IF (PRESENT(z_lin))    z_lin = out%z_lin
@@ -148,18 +148,18 @@ CONTAINS
     IF (PRESENT(tau))      tau = out%tau
     IF (PRESENT(tau_cum))  tau_cum = out%tau_cum
     IF (PRESENT(pia))      pia = out%pia
-  END SUBROUTINE radar_simple_run
+  END SUBROUTINE asrt_simple_run
 
-  SUBROUTINE radar_simple_destroy(handle)
+  SUBROUTINE asrt_simple_destroy(handle)
     INTEGER, INTENT(IN) :: handle
-    CALL radar_destroy(ops(handle))
-  END SUBROUTINE radar_simple_destroy
+    CALL asrt_destroy(ops(handle))
+  END SUBROUTINE asrt_simple_destroy
 
   ! Mass content (kg m-3) from a mixing ratio (kg/kg of moist air)
-  ELEMENTAL FUNCTION radar_mixing_ratio_to_content(qx, p_hpa, t_k, qv) RESULT(wc)
+  ELEMENTAL FUNCTION asrt_mixing_ratio_to_content(qx, p_hpa, t_k, qv) RESULT(wc)
     REAL(fp), INTENT(IN) :: qx, p_hpa, t_k, qv
     REAL(fp) :: wc
     wc = qx*p_hpa*100.0_fp/(R_DRY*t_k*(ONE + (ONE/EPS_WV - ONE)*qv))
-  END FUNCTION radar_mixing_ratio_to_content
+  END FUNCTION asrt_mixing_ratio_to_content
 
-END MODULE radar_simple
+END MODULE asrt_simple

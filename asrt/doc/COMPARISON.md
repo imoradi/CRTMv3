@@ -1,4 +1,4 @@
-# Standalone radar operator vs CRTM
+# ASRT vs CRTM
 
 Data: `collocated_ifs-geer_atms_npp_20170907_18_00.nc`, all 60048 IFS
 profiles, 136 layers, looking straight down (zenith 0°; a second run at
@@ -22,7 +22,7 @@ layers, no extra layers. Driver: `compare/compare_crtm.f90`; analysis:
 
 ## Reflectivity (1.34 million gates with echo per channel)
 
-Attenuated Z, standalone minus CRTM (dB):
+Attenuated Z, ASRT minus CRTM (dB):
 
 | Channel | A bias / max | B bias / sd / max | C bias / sd / max | D bias / sd |
 | --- | --- | --- | --- | --- |
@@ -75,19 +75,19 @@ full calculation should be used at W band.
 ## Jacobians
 
 CRTM K-matrix (seeding attenuated Z one gate at a time) against the
-standalone K for the 5 profiles with the most rain and snow, 136 × 136 per
+ASRT K for the 5 profiles with the most rain and snow, 136 × 136 per
 species and channel. They agree to 1e-14 of the largest value everywhere
 except layers whose water content is below the lowest density in the table
 (1e-6 kg m⁻³). There the table is clamped, so the forward model is flat in
-water content. The standalone operator gives the derivative of that flat
+water content. ASRT gives the derivative of that flat
 function (consistent with finite differences), while CRTM keeps the slope of
 the interpolating polynomial at the table edge. This affects a few layers
 with very small water content (up to 16% of the rain Jacobian at W band in
 those layers).
 
-The standalone TL, AD and K also pass their own tests (TL against finite
+The ASRT TL, AD and K also pass their own tests (TL against finite
 differences to 1e-8, AD against TL to 1e-15, K against TL to 1e-16) in 24
-configurations: `test/test_radar_operator.f90` (30 cases including the
+configurations: `test/test_asrt.f90` (30 cases including the
 particle paths).
 
 ## Single particles from NuRTM with temperature-dependent PSDs (variants E, F)
@@ -130,13 +130,13 @@ Median Z (dBZ) on gates with only one species, all 60048 profiles:
   (pyWeather `dda/gen_dda_coef`) use Thompson 2008 only for liquid (cloud
   water and rain). All frozen habits use the Field et al. (2007)
   mid-latitude PSD at a fixed 235 K, with the habit mass-size relation.
-  With that PSD (`PSD_F07_MIDLAT`, `t_fix = 235`, `RADAR_SNOW_PSD=f07m_235` in
-  the driver) the standalone snow agrees with CRTM to within 0.35 to 0.47 dB
+  With that PSD (`PSD_F07_MIDLAT`, `t_fix = 235`, `ASRT_SNOW_PSD=f07m_235` in
+  the driver) the ASRT snow agrees with CRTM to within 0.35 to 0.47 dB
   (sd 0.1 dB) at all three frequencies. The remaining offset is consistent
   with the mass-size relation (database masses here, the ARTS α, β fit in
   the table) and the temperature of the cross sections.
 * **Fixed 235 K vs layer temperature for the Field (2007) snow PSD**
-  (default vs `RADAR_SNOW_PSD=f07m_235`, all 60048 profiles). Using the layer
+  (default vs `ASRT_SNOW_PSD=f07m_235`, all 60048 profiles). Using the layer
   temperature raises snow Z by 7.3 dB at Ku, 6.8 dB at Ka and 4.9 dB at W on
   snow-only gates, and the change grows with temperature:
 

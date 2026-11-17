@@ -1,6 +1,9 @@
-# Standalone radar operator
+# ASRT: Active Sensor Radiative Transfer
 
-A radar reflectivity operator (forward, tangent linear, adjoint and K-matrix)
+(Formerly `standalone_radar`. Modules, types and routines were renamed from
+`radar_*` to `asrt_*`; the library is `libasrt`.)
+
+ASRT is a radar reflectivity operator (forward, tangent linear, adjoint and K-matrix)
 that runs without CRTM. With its default settings it reproduces the CRTM
 active-sensor result (`CRTM_Active_Sensor`) for the same inputs, and it adds:
 
@@ -21,9 +24,9 @@ active-sensor result (`CRTM_Active_Sensor`) for the same inputs, and it adds:
 
 ```
 mkdir build && cd build
-cmake .. -DRADAR_BUILD_TESTS=ON      # needs netCDF-Fortran
+cmake .. -DASRT_BUILD_TESTS=ON      # needs netCDF-Fortran
 make
-./test_radar_operator /path/to/CloudCoeff_DDA_*.nc4 [/path/to/ssdb_nurtm/mw]
+./test_asrt /path/to/CloudCoeff_DDA_*.nc4 [/path/to/ssdb_nurtm/mw]
 ```
 
 The test checks the TL against finite differences, the AD against the TL
@@ -34,35 +37,35 @@ NuRTM particles) at 13.6, 35.5 and 94 GHz.
 
 | File | Contents |
 | --- | --- |
-| `src/radar_kinds.f90` | kinds and constants |
-| `src/radar_interp.f90` | the CRTM lookup-table interpolation (4-point blended Lagrange) |
-| `src/radar_gas.f90` | gas absorption: ITU-R P.676-12 Annex 1 line by line, P.676 Annex 2 approximation, or a user optical depth |
-| `src/radar_hydro_approx.f90` | approximate hydrometeor attenuation (ITU-R P.840 cloud, Rayleigh ice/snow, ITU-R P.838-3 rain) |
-| `src/radar_species.f90` | hydrometeor species: CloudCoeff LUT, or particles plus a PSD |
-| `src/radar_tdts.F90` | TDTS wide-angle multiple scattering |
-| `src/radar_operator.f90` | the operator: forward, TL, AD, K |
-| `src/radar_simple.f90` | a short interface for models such as GEOS |
-| `test/test_radar_operator.f90` | derivative tests |
+| `src/asrt_kinds.f90` | kinds and constants |
+| `src/asrt_interp.f90` | the CRTM lookup-table interpolation (4-point blended Lagrange) |
+| `src/asrt_gas.f90` | gas absorption: ITU-R P.676-12 Annex 1 line by line, P.676 Annex 2 approximation, or a user optical depth |
+| `src/asrt_hydro_approx.f90` | approximate hydrometeor attenuation (ITU-R P.840 cloud, Rayleigh ice/snow, ITU-R P.838-3 rain) |
+| `src/asrt_species.f90` | hydrometeor species: CloudCoeff LUT, or particles plus a PSD |
+| `src/asrt_tdts.F90` | TDTS wide-angle multiple scattering |
+| `src/asrt_operator.f90` | the operator: forward, TL, AD, K |
+| `src/asrt_simple.f90` | a short interface for models such as GEOS |
+| `test/test_asrt.f90` | derivative tests |
 | `compare/compare_crtm.f90` | comparison with CRTM on a collocated IFS file |
 
 ## Simple interface (GEOS)
 
 ```fortran
-use radar_kinds,  only: fp
-use radar_simple
-use radar_operator, only: PLATFORM_SPACEBORNE, PLATFORM_GROUND
+use asrt_kinds,  only: fp
+use asrt_simple
+use asrt_operator, only: PLATFORM_SPACEBORNE, PLATFORM_GROUND
 
 integer :: h
-call radar_simple_init(h, 13.6_fp, 'CloudCoeff_DDA_Thompson.nc4', &
+call asrt_simple_init(h, 13.6_fp, 'CloudCoeff_DDA_Thompson.nc4', &
      ['cloud_liquid', 'cloud_ice   ', 'rain        ', 'snow        ', 'graupel     '], &
      platform=PLATFORM_SPACEBORNE)
 
 ! per column; layer 1 is the top
-wc(:,s) = radar_mixing_ratio_to_content(qx(:,s), p, t, q)     ! kg m-3
-call radar_simple_run(h, zenith, p, t, q, z_int, wc, z_dbz, zatt_dbz, &
+wc(:,s) = asrt_mixing_ratio_to_content(qx(:,s), p, t, q)     ! kg m-3
+call asrt_simple_run(h, zenith, p, t, q, z_int, wc, z_dbz, zatt_dbz, &
      z_lin=z_lin, zatt_lin=zatt_lin, tau=tau, tau_cum=tau_cum, pia=pia)
 
-call radar_simple_destroy(h)
+call asrt_simple_destroy(h)
 ```
 
 Inputs per layer: pressure `p` (hPa), temperature `t` (K), specific humidity
@@ -85,7 +88,7 @@ To attenuate for another zenith angle θ without rerunning:
 
 ### Particle-based defaults
 
-`radar_simple_init_ssdb` builds the species from the NuRTM single-scattering
+`asrt_simple_init_ssdb` builds the species from the NuRTM single-scattering
 databases instead of the CRTM table, with temperature-dependent cross
 sections for all species and temperature-dependent PSDs for the frozen ones
 (`species_default_ssdb`):
@@ -100,7 +103,7 @@ sections for all species and temperature-dependent PSDs for the frozen ones
 | `hail` | GemHail | Field 2007 mid-latitude at the layer temperature |
 
 ```fortran
-call radar_simple_init_ssdb(h, 35.5_fp, '/path/to/ssdb_nurtm/mw', &
+call asrt_simple_init_ssdb(h, 35.5_fp, '/path/to/ssdb_nurtm/mw', &
      ['cloud_liquid', 'cloud_ice   ', 'rain        ', 'snow        ', 'graupel     ', 'hail        '], &
      platform=PLATFORM_SPACEBORNE)
 ```
@@ -108,34 +111,34 @@ call radar_simple_init_ssdb(h, 35.5_fp, '/path/to/ssdb_nurtm/mw', &
 Without a `config` it uses full extinction (`SCALING_NONE`) and no CRTM
 quality rules.
 
-`radar_simple_operator(h)` returns a pointer to the full operator, for
+`asrt_simple_operator(h)` returns a pointer to the full operator, for
 the TL, AD and K-matrix routines.
 
 ## Full interface
 
 ```fortran
-type(radar_config_type)   :: cfg
-type(radar_operator_type) :: op
-type(radar_species_type)  :: sp
-type(radar_profile_type)  :: prof, prof_tl, prof_ad
-type(radar_output_type)   :: out, out_tl, out_ad
-type(radar_k_type)        :: k
+type(asrt_config_type)   :: cfg
+type(asrt_operator_type) :: op
+type(asrt_species_type)  :: sp
+type(asrt_profile_type)  :: prof, prof_tl, prof_ad
+type(asrt_output_type)   :: out, out_tl, out_ad
+type(asrt_k_type)        :: k
 
 cfg%frequency = 94.05_fp
 cfg%platform  = PLATFORM_SPACEBORNE
-call radar_init(op, cfg, n_species=2)
+call asrt_init(op, cfg, n_species=2)
 call species_from_lut(sp, 'rain', 'CloudCoeff.nc4', cfg%frequency, cfg%n_streams)
-call radar_add_species(op, 1, sp)
+call asrt_add_species(op, 1, sp)
 call species_from_particles(sp, 'snow', PHASE_FROZEN, cfg%frequency, d, mass, &
                             cext, csca, cbsc, asym, n0, mu)
-call radar_add_species(op, 2, sp)
+call asrt_add_species(op, 2, sp)
 
-call radar_profile_create(prof, n, 2)     ! fill prof%p, t, q, z_int, rho, zenith
-call radar_output_create(out, n)
-call radar_forward(op, prof, out)
-call radar_tl(op, prof, prof_tl, out_tl)
-call radar_ad(op, prof, out_ad, prof_ad)   ! seeds in out_ad, accumulates in prof_ad
-call radar_k(op, prof, OUT_ZATT_DBZ, k)    ! k%t(gate,layer), k%q, k%rho(gate,layer,species)
+call asrt_profile_create(prof, n, 2)     ! fill prof%p, t, q, z_int, rho, zenith
+call asrt_output_create(out, n)
+call asrt_forward(op, prof, out)
+call asrt_tl(op, prof, prof_tl, out_tl)
+call asrt_ad(op, prof, out_ad, prof_ad)   ! seeds in out_ad, accumulates in prof_ad
+call asrt_k(op, prof, OUT_ZATT_DBZ, k)    ! k%t(gate,layer), k%q, k%rho(gate,layer,species)
 ```
 
 ### Species
@@ -178,7 +181,7 @@ Bulk optical properties can be given directly per layer in
 `prof%bulk_ext`, `bulk_sca`, `bulk_bsc` (m^-1) and `bulk_g` with
 `prof%has_bulk = .true.`. They are added to the species.
 
-### Options (`radar_config_type`)
+### Options (`asrt_config_type`)
 
 | Field | Default | Choices |
 | --- | --- | --- |

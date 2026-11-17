@@ -1,7 +1,7 @@
-# Standalone radar operator: technical note
+# ASRT (Active Sensor Radiative Transfer): technical note
 
-This note records what the standalone radar operator does, how it was
-built and tested, and what the comparison with CRTM showed. It covers the
+This note records what ASRT, the standalone radar operator (formerly
+`standalone_radar`, modules `radar_*`), does, how it was built and tested, and what the comparison with CRTM showed. It covers the
 work on branch `feature/standalone-radar` up to November 2026. The detailed
 comparison numbers are in [COMPARISON.md](COMPARISON.md), and the API is in
 the [README](../README.md).
@@ -29,18 +29,18 @@ no CRTM dependency; CRTM is used only by the comparison driver.
 
 | File | Contents |
 | --- | --- |
-| `src/radar_kinds.f90` | kinds and constants |
-| `src/radar_interp.f90` | CRTM lookup-table interpolation (4-point blended Lagrange) |
-| `src/radar_gas.f90` | gas absorption: ITU-R P.676-12 Annex 1 (line by line), Annex 2 (approximation), or user optical depth |
-| `src/radar_hydro_approx.f90` | approximate hydrometeor attenuation |
-| `src/radar_species.f90` | hydrometeor species: CloudCoeff LUT, particles, NuRTM SSDB, PSDs |
-| `src/radar_tdts.F90` | TDTS wide-angle multiple scattering (Hogan and Battaglia 2008, as in CRTM) |
-| `src/radar_operator.f90` | operator: forward, TL, AD, K |
-| `src/radar_simple.f90` | short interface for models (GEOS) |
-| `test/test_radar_operator.f90` | derivative tests |
+| `src/asrt_kinds.f90` | kinds and constants |
+| `src/asrt_interp.f90` | CRTM lookup-table interpolation (4-point blended Lagrange) |
+| `src/asrt_gas.f90` | gas absorption: ITU-R P.676-12 Annex 1 (line by line), Annex 2 (approximation), or user optical depth |
+| `src/asrt_hydro_approx.f90` | approximate hydrometeor attenuation |
+| `src/asrt_species.f90` | hydrometeor species: CloudCoeff LUT, particles, NuRTM SSDB, PSDs |
+| `src/asrt_tdts.F90` | TDTS wide-angle multiple scattering (Hogan and Battaglia 2008, as in CRTM) |
+| `src/asrt_operator.f90` | operator: forward, TL, AD, K |
+| `src/asrt_simple.f90` | short interface for models (GEOS) |
+| `test/test_asrt.f90` | derivative tests |
 | `compare/compare_crtm.f90`, `compare/analyze.py` | comparison with CRTM on the collocated IFS file |
 
-Build with CMake (`-DRADAR_BUILD_TESTS=ON`); only netCDF-Fortran is needed.
+Build with CMake (`-DASRT_BUILD_TESTS=ON`); only netCDF-Fortran is needed.
 
 ## 3. Physics
 
@@ -170,7 +170,7 @@ All PSDs depend on the layer temperature except `PSD_GAMMA*` and
 `PSD_T08_RAIN`, and the temperature derivative of the PSD is carried
 through TL and AD.
 
-### 4.6 Default species (`species_default_ssdb`, `radar_simple_init_ssdb`)
+### 4.6 Default species (`species_default_ssdb`, `asrt_simple_init_ssdb`)
 
 The default set for the particle path uses temperature-dependent cross
 sections for all six species, and temperature-dependent PSDs for all frozen
@@ -192,7 +192,7 @@ Field (2007) PSD as the CRTM DDA tables, but at the layer temperature
 instead of the fixed 235 K (Section 6.4).
 
 ```fortran
-call radar_simple_init_ssdb(h, 35.5_fp, '/path/ssdb_nurtm/mw', &
+call asrt_simple_init_ssdb(h, 35.5_fp, '/path/ssdb_nurtm/mw', &
      ['cloud_liquid', 'cloud_ice   ', 'rain        ', 'snow        ', 'graupel     ', 'hail        '], &
      platform=PLATFORM_SPACEBORNE)
 ```
@@ -205,7 +205,7 @@ complex-step method (step 1e-30), so all PSDs, interpolation and the gas
 model share one code path for value and derivative. `min`/`max` on complex
 numbers compare the real parts.
 
-`test/test_radar_operator.f90` checks, for every configuration at 13.6, 35.5
+`test/test_asrt.f90` checks, for every configuration at 13.6, 35.5
 and 94 GHz:
 
 * TL against finite differences (relative error about 1e-9);
@@ -248,10 +248,10 @@ overcast layers.
 
 ### 6.2 Jacobians
 
-The CRTM K-matrix and the standalone K agree to 1e-14 of the largest value
+The CRTM K-matrix and the ASRT K agree to 1e-14 of the largest value
 for the 5 profiles with the most rain and snow (136 × 136 per species and
 channel), except in layers whose water content is below the lowest table
-density (1e-6 kg m⁻³). There the table is clamped; the standalone K is the
+density (1e-6 kg m⁻³). There the table is clamped; the ASRT K is the
 derivative of the clamped function (consistent with finite differences),
 while CRTM keeps the slope of the interpolating polynomial.
 
@@ -268,8 +268,7 @@ while CRTM keeps the slope of the interpolating polynomial.
 
 ### 6.4 Snow: habit, PSD and temperature
 
-1. With the same habit (6-bullet rosette) in CRTM and the standalone
-   operator, Thompson Field05 snow was 4 to 7 dB above the CRTM table, so
+1. With the same habit (6-bullet rosette) in CRTM and ASRT, Thompson Field05 snow was 4 to 7 dB above the CRTM table, so
    the difference is in the PSD, not the habit.
 2. The scripts that built the CRTM DDA table (pyWeather
    `dda/gen_dda_coef`: `arts_ssd.py`, `crtm_calc.py`, `psd_field.py`,
@@ -277,8 +276,7 @@ while CRTM keeps the slope of the interpolating polynomial.
    only for cloud water and rain. All frozen habits (ice, snow, graupel,
    hail) use the Field et al. (2007) mid-latitude PSD at a fixed 235 K, with
    the ARTS α, β mass-size relation.
-3. With that PSD at 235 K (`PSD_F07_MIDLAT`, `t_fix = 235`) the standalone
-   snow agrees with CRTM to 0.35 to 0.47 dB (sd 0.1 dB). The remaining offset
+3. With that PSD at 235 K (`PSD_F07_MIDLAT`, `t_fix = 235`) the ASRT snow agrees with CRTM to 0.35 to 0.47 dB (sd 0.1 dB). The remaining offset
    is from the mass-size relation (database masses vs the α, β fit) and the
    cross-section temperature.
 4. Using the layer temperature instead of 235 K raises snow Z on snow-only
@@ -363,10 +361,10 @@ difference is negligible.
 
 ## 8. Recommendations
 
-* For GEOS: `radar_simple_init_ssdb` with the default species, full
+* For GEOS: `asrt_simple_init_ssdb` with the default species, full
   attenuation, `SCALING_NONE`, and the ITU line-by-line gas model. Use
   `tau_cum` to apply the attenuation for any zenith angle.
-* To reproduce CRTM exactly: `radar_simple_init` with the CloudCoeff file
+* To reproduce CRTM exactly: `asrt_simple_init` with the CloudCoeff file
   and the default configuration.
 * Approximate attenuation is fine at Ku, acceptable at Ka, not at W.
 * Cloud ice is the most uncertain species; pass N_i when the model has it.

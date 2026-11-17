@@ -1,9 +1,9 @@
 !
-! radar_kinds
+! asrt_kinds
 !
-! Kinds and physical constants for the standalone radar operator.
+! Kinds and physical constants for ASRT (Active Sensor Radiative Transfer).
 !
-MODULE radar_kinds
+MODULE asrt_kinds
   IMPLICIT NONE
   PRIVATE
   INTEGER, PARAMETER, PUBLIC :: fp = SELECTED_REAL_KIND(15, 300)
@@ -25,4 +25,4 @@ MODULE radar_kinds
   REAL(fp), PARAMETER, PUBLIC :: M6_TO_MM6 = 1.0e18_fp
   ! Complex-step size used for derivatives of local (single layer) functions
   REAL(fp), PARAMETER, PUBLIC :: CSTEP = 1.0e-30_fp
-END MODULE radar_kinds
+END MODULE asrt_kinds

@@ -1,4 +1,4 @@
-"""Statistics and figures for the CRTM vs standalone radar comparison."""
+"""Statistics and figures for the CRTM vs ASRT comparison."""
 import sys, json, numpy as np, netCDF4 as nc
 import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt
 fn, outdir = sys.argv[1], sys.argv[2]
@@ -29,7 +29,7 @@ for ic, cn in enumerate(chans):
         print(cn, vn, json.dumps(r))
 json.dump(stats, open(f'{outdir}/stats.json', 'w'), indent=1)
 
-# Figure 1: Zatt standalone vs CRTM per variant and channel (2D hist)
+# Figure 1: Zatt ASRT vs CRTM per variant and channel (2D hist)
 fig, ax = plt.subplots(3, NV, figsize=(4 * NV, 11.5), constrained_layout=True)
 for ic in range(3):
     for v in range(NV):
@@ -40,7 +40,7 @@ for ic in range(3):
         ax[ic, v].plot([-30, 60], [-30, 60], 'k--', lw=.7)
         s = stats[f'{ic}:{v}']['Zatt']
         ax[ic, v].set_title(f'{chans[ic]}\n{vars_[v]}\nbias {s["mean"]:.3f} dB, sd {s["std"]:.3f} dB', fontsize=9)
-        ax[ic, v].set_xlabel('CRTM attenuated Z (dBZ)'); ax[ic, v].set_ylabel('standalone (dBZ)')
+        ax[ic, v].set_xlabel('CRTM attenuated Z (dBZ)'); ax[ic, v].set_ylabel('ASRT (dBZ)')
 fig.savefig(f'{outdir}/zatt_scatter.png', dpi=110)
 
 # Figure 2: mean difference profile vs height (attenuated)
@@ -55,7 +55,7 @@ for ic in range(3):
         mu = [df[idx == k].mean() if (idx == k).sum() > 20 else np.nan for k in range(1, len(hb))]
         ax[ic].plot(mu, (hb[:-1] + 250) / 1000, label=vars_[v])
     ax[ic].axvline(0, color='k', lw=.6); ax[ic].set_title(chans[ic])
-    ax[ic].set_xlabel('mean standalone − CRTM attenuated Z (dB)')
+    ax[ic].set_xlabel('mean ASRT − CRTM attenuated Z (dB)')
 ax[0].set_ylabel('height (km)'); ax[0].legend(fontsize=8)
 fig.savefig(f'{outdir}/zatt_diff_profile.png', dpi=110)
 
@@ -69,7 +69,7 @@ for ic in range(3):
         print(chans[ic], lab, 'column gas OD ratio sa/crtm median %.3f' % np.median(sg / np.maximum(cg, 1e-12)))
     lim = [0, max(cg.max(), 1e-3) * 1.1]
     ax[ic].plot(lim, lim, 'k--', lw=.7); ax[ic].set_title(chans[ic])
-    ax[ic].set_xlabel('CRTM ODPS column gas OD'); ax[ic].set_ylabel('standalone')
+    ax[ic].set_xlabel('CRTM ODPS column gas OD'); ax[ic].set_ylabel('ASRT')
     ax[ic].legend(fontsize=8)
 fig.savefig(f'{outdir}/gas_od.png', dpi=110)
 

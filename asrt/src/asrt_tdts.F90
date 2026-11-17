@@ -1,11 +1,11 @@
 !
-! radar_tdts (copied from CRTM_Active_MS_TDTS, CRTMv3 feature/multiple-scattering)
+! asrt_tdts (copied from CRTM_Active_MS_TDTS, CRTMv3 feature/multiple-scattering)
 !
 ! Wide-angle multiple scattering for spaceborne radar using the
 ! time-dependent two-stream (TDTS) method of Hogan and Battaglia (2008).
 !
 ! The forward model and its complex-step tangent-linear share the generic
-! code in radar_tdts_core.inc. The adjoint is hand coded; the
+! code in asrt_tdts_core.inc. The adjoint is hand coded; the
 ! adjoint of the two-stream time stepping follows tdts_AD.c of the
 ! "multiscatter" package.
 !
@@ -30,9 +30,9 @@
 !       Written by:     Isaac Moradi - NASA GSFC, November 2026
 !
 
-MODULE radar_tdts
+MODULE asrt_tdts
 
-  USE radar_kinds, ONLY: fp
+  USE asrt_kinds, ONLY: fp
   IMPLICIT NONE
   PRIVATE
   PUBLIC :: TDTS_Wide_Angle
@@ -67,7 +67,7 @@ CONTAINS
 #define TDTS_CORE_NAME tdts_core_r
 #define TDTS_SWAP_NAME tdts_swap_r
 #define TDTS_PIPE_NAME tdts_pipe_r
-#include "radar_tdts_core.inc"
+#include "asrt_tdts_core.inc"
 #undef TDTS_RK
 #undef TDTS_DELTAS_NAME
 #undef TDTS_EXPANSION_NAME
@@ -84,7 +84,7 @@ CONTAINS
 #define TDTS_CORE_NAME tdts_core_c
 #define TDTS_SWAP_NAME tdts_swap_c
 #define TDTS_PIPE_NAME tdts_pipe_c
-#include "radar_tdts_core.inc"
+#include "asrt_tdts_core.inc"
 #undef TDTS_RK
 #undef TDTS_DELTAS_NAME
 #undef TDTS_EXPANSION_NAME
@@ -101,7 +101,7 @@ CONTAINS
 ! PURPOSE:
 !       Layer-mean apparent backscatter (m-1 sr-1) from wide-angle multiple
 !       scattering, to be added to the attenuated single-scattering return.
-!       See TDTS_PIPE_NAME in radar_tdts_core.inc for the arguments.
+!       See TDTS_PIPE_NAME in asrt_tdts_core.inc for the arguments.
 !
 !--------------------------------------------------------------------------------
   SUBROUTINE TDTS_Wide_Angle(n, edge, ext, ssa, g, rho_tr, rho_fov, cbe, bscat)
@@ -674,4 +674,4 @@ CONTAINS
     DEALLOCATE(Iin, Iout, Vin, Vout)
   END SUBROUTINE tdts_core_AD
 
-END MODULE radar_tdts
+END MODULE asrt_tdts

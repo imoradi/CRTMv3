@@ -1,7 +1,7 @@
 !
-! radar_operator
+! asrt_operator
 !
-! Standalone radar reflectivity operator (forward, tangent-linear, adjoint
+! ASRT (Active Sensor Radiative Transfer): radar reflectivity operator (forward, tangent-linear, adjoint
 ! and K-matrix), independent of CRTM. It reproduces the CRTM active-sensor
 ! calculation (CRTM_Active_Sensor) when the CRTM-compatible settings are used
 ! (the defaults), and adds:
@@ -22,13 +22,13 @@
 !   Optical depths are one-way, vertical (not divided by cos(zenith)).
 !   Two-way transmittance to a gate:  trans2 = exp(-2*tau_cum/cos(zenith)).
 !
-MODULE radar_operator
-  USE radar_kinds
-  USE radar_gas,     ONLY: GAS_MODEL_NONE, GAS_MODEL_ITU_LBL, GAS_MODEL_ITU_APPROX, GAS_MODEL_USER, &
+MODULE asrt_operator
+  USE asrt_kinds
+  USE asrt_gas,     ONLY: GAS_MODEL_NONE, GAS_MODEL_ITU_LBL, GAS_MODEL_ITU_APPROX, GAS_MODEL_USER, &
                            gas_absorption_deriv, gas_absorption
-  USE radar_species, ONLY: radar_species_type, N_OPT, I_EXT, I_SCA, I_BSC, I_FSCA, I_GSCA, I_ATT, &
+  USE asrt_species, ONLY: asrt_species_type, N_OPT, I_EXT, I_SCA, I_BSC, I_FSCA, I_GSCA, I_ATT, &
                            species_optics_deriv, species_optics, species_destroy, SOURCE_NONE
-  USE radar_tdts,    ONLY: TDTS_Wide_Angle, TDTS_Wide_Angle_TL, TDTS_Wide_Angle_AD
+  USE asrt_tdts,    ONLY: TDTS_Wide_Angle, TDTS_Wide_Angle_TL, TDTS_Wide_Angle_AD
   IMPLICIT NONE
   PRIVATE
 
@@ -51,16 +51,16 @@ MODULE radar_operator
   INTEGER, PARAMETER, PUBLIC :: OUT_TAU_CUM = 5, OUT_PIA = 6
   REAL(fp), PARAMETER, PUBLIC :: MISSING_DBZ = -9999.0_fp
 
-  PUBLIC :: radar_config_type, radar_operator_type, radar_profile_type, radar_output_type
-  PUBLIC :: radar_k_type
-  PUBLIC :: radar_init, radar_add_species, radar_destroy
-  PUBLIC :: radar_profile_create, radar_profile_zero, radar_output_create, radar_output_zero
-  PUBLIC :: radar_k_create
-  PUBLIC :: radar_forward, radar_tl, radar_ad, radar_k
+  PUBLIC :: asrt_config_type, asrt_operator_type, asrt_profile_type, asrt_output_type
+  PUBLIC :: asrt_k_type
+  PUBLIC :: asrt_init, asrt_add_species, asrt_destroy
+  PUBLIC :: asrt_profile_create, asrt_profile_zero, asrt_output_create, asrt_output_zero
+  PUBLIC :: asrt_k_create
+  PUBLIC :: asrt_forward, asrt_tl, asrt_ad, asrt_k
   PUBLIC :: water_kw2_turner
 
   ! ---------------------------------------------------------------------------
-  TYPE :: radar_config_type
+  TYPE :: asrt_config_type
     REAL(fp) :: frequency          = 13.6_fp          ! GHz
     INTEGER  :: platform           = PLATFORM_SPACEBORNE
     INTEGER  :: gas_model          = GAS_MODEL_ITU_LBL
@@ -85,20 +85,20 @@ MODULE radar_operator
     ! dBZ TL/AD: zero below tlad_min_dbz; Z held >= tlad_cap_dbz in the gain
     REAL(fp) :: tlad_min_dbz       = 0.0_fp
     REAL(fp) :: tlad_cap_dbz       = 0.0_fp
-  END TYPE radar_config_type
+  END TYPE asrt_config_type
 
-  TYPE :: radar_operator_type
+  TYPE :: asrt_operator_type
     LOGICAL  :: initialized = .FALSE.
-    TYPE(radar_config_type) :: config
+    TYPE(asrt_config_type) :: config
     REAL(fp) :: wavelength = ZERO        ! m
     REAL(fp) :: kw2 = ZERO
     REAL(fp) :: radar_constant = ZERO    ! Z (mm6 m-3) = radar_constant * backscatter (m-1)
     INTEGER  :: n_species = 0
-    TYPE(radar_species_type), ALLOCATABLE :: species(:)
-  END TYPE radar_operator_type
+    TYPE(asrt_species_type), ALLOCATABLE :: species(:)
+  END TYPE asrt_operator_type
 
   ! Profile (also used for TL and AD perturbations: t, q, rho, tau_gas, bulk_*)
-  TYPE :: radar_profile_type
+  TYPE :: asrt_profile_type
     INTEGER  :: n_layers = 0, n_species = 0
     REAL(fp) :: zenith = ZERO            ! beam zenith angle (deg); for a ground radar 90 - elevation
     REAL(fp), ALLOCATABLE :: p(:), t(:), q(:)
@@ -108,9 +108,9 @@ MODULE radar_operator
     ! Bulk optical properties supplied directly (added to the species)
     LOGICAL  :: has_bulk = .FALSE.
     REAL(fp), ALLOCATABLE :: bulk_ext(:), bulk_sca(:), bulk_bsc(:), bulk_g(:)   ! m-1, m-1, m-1, -
-  END TYPE radar_profile_type
+  END TYPE asrt_profile_type
 
-  TYPE :: radar_output_type
+  TYPE :: asrt_output_type
     INTEGER :: n_layers = 0
     REAL(fp), ALLOCATABLE :: z_lin(:), z_dbz(:)          ! unattenuated
     REAL(fp), ALLOCATABLE :: zatt_lin(:), zatt_dbz(:)    ! attenuated along the beam (zenith angle)
@@ -120,13 +120,13 @@ MODULE radar_operator
     REAL(fp), ALLOCATABLE :: trans2(:)                   ! two-way transmittance along the beam
     REAL(fp), ALLOCATABLE :: pia(:)                      ! two-way path-integrated attenuation (dB)
     REAL(fp), ALLOCATABLE :: z_ms(:)                     ! multiple-scattering contribution (mm6 m-3)
-  END TYPE radar_output_type
+  END TYPE asrt_output_type
 
-  TYPE :: radar_k_type
+  TYPE :: asrt_k_type
     INTEGER :: n_layers = 0, n_species = 0
     REAL(fp), ALLOCATABLE :: t(:,:), q(:,:)        ! (gate, layer)
     REAL(fp), ALLOCATABLE :: rho(:,:,:)            ! (gate, layer, species)
-  END TYPE radar_k_type
+  END TYPE asrt_k_type
 
   ! Internal: base state of one profile
   TYPE :: work_type
@@ -178,12 +178,12 @@ CONTAINS
   END FUNCTION water_kw2_turner
 
   !
-  ! radar_init: set up the operator for one frequency. Species are added
-  ! afterwards with radar_add_species (in the order of the rho columns).
+  ! asrt_init: set up the operator for one frequency. Species are added
+  ! afterwards with asrt_add_species (in the order of the rho columns).
   !
-  SUBROUTINE radar_init(op, config, n_species)
-    TYPE(radar_operator_type), INTENT(OUT) :: op
-    TYPE(radar_config_type),   INTENT(IN)  :: config
+  SUBROUTINE asrt_init(op, config, n_species)
+    TYPE(asrt_operator_type), INTENT(OUT) :: op
+    TYPE(asrt_config_type),   INTENT(IN)  :: config
     INTEGER,                   INTENT(IN)  :: n_species
     op%config = config
     op%wavelength = C_LIGHT/(config%frequency*1.0e9_fp)
@@ -196,22 +196,22 @@ CONTAINS
     op%n_species = n_species
     ALLOCATE(op%species(n_species))
     IF (op%config%multiple_scattering .AND. op%config%platform /= PLATFORM_SPACEBORNE) THEN
-      WRITE(*,*) 'radar_init: multiple scattering is only available for spaceborne radars; disabled'
+      WRITE(*,*) 'asrt_init: multiple scattering is only available for spaceborne radars; disabled'
       op%config%multiple_scattering = .FALSE.
     END IF
     op%initialized = .TRUE.
-  END SUBROUTINE radar_init
+  END SUBROUTINE asrt_init
 
-  SUBROUTINE radar_add_species(op, index, sp)
-    TYPE(radar_operator_type), INTENT(INOUT) :: op
+  SUBROUTINE asrt_add_species(op, index, sp)
+    TYPE(asrt_operator_type), INTENT(INOUT) :: op
     INTEGER,                   INTENT(IN)    :: index
-    TYPE(radar_species_type),  INTENT(IN)    :: sp
+    TYPE(asrt_species_type),  INTENT(IN)    :: sp
     op%species(index) = sp
     op%species(index)%zero_bsc_if_no_scattering = op%config%crtm_compat
-  END SUBROUTINE radar_add_species
+  END SUBROUTINE asrt_add_species
 
-  SUBROUTINE radar_destroy(op)
-    TYPE(radar_operator_type), INTENT(INOUT) :: op
+  SUBROUTINE asrt_destroy(op)
+    TYPE(asrt_operator_type), INTENT(INOUT) :: op
     INTEGER :: i
     IF (ALLOCATED(op%species)) THEN
       DO i = 1, SIZE(op%species)
@@ -220,10 +220,10 @@ CONTAINS
       DEALLOCATE(op%species)
     END IF
     op%initialized = .FALSE.
-  END SUBROUTINE radar_destroy
+  END SUBROUTINE asrt_destroy
 
-  SUBROUTINE radar_profile_create(prof, n_layers, n_species, with_bulk)
-    TYPE(radar_profile_type), INTENT(OUT) :: prof
+  SUBROUTINE asrt_profile_create(prof, n_layers, n_species, with_bulk)
+    TYPE(asrt_profile_type), INTENT(OUT) :: prof
     INTEGER,                  INTENT(IN)  :: n_layers, n_species
     LOGICAL, OPTIONAL,        INTENT(IN)  :: with_bulk
     prof%n_layers = n_layers
@@ -233,52 +233,52 @@ CONTAINS
     prof%has_bulk = .FALSE.
     IF (PRESENT(with_bulk)) prof%has_bulk = with_bulk
     ALLOCATE(prof%bulk_ext(n_layers), prof%bulk_sca(n_layers), prof%bulk_bsc(n_layers), prof%bulk_g(n_layers))
-    CALL radar_profile_zero(prof)
-  END SUBROUTINE radar_profile_create
+    CALL asrt_profile_zero(prof)
+  END SUBROUTINE asrt_profile_create
 
-  SUBROUTINE radar_profile_zero(prof)
-    TYPE(radar_profile_type), INTENT(INOUT) :: prof
+  SUBROUTINE asrt_profile_zero(prof)
+    TYPE(asrt_profile_type), INTENT(INOUT) :: prof
     prof%p = ZERO; prof%t = ZERO; prof%q = ZERO; prof%z_int = ZERO; prof%rho = ZERO
     prof%tau_gas = ZERO
     prof%bulk_ext = ZERO; prof%bulk_sca = ZERO; prof%bulk_bsc = ZERO; prof%bulk_g = ZERO
-  END SUBROUTINE radar_profile_zero
+  END SUBROUTINE asrt_profile_zero
 
-  SUBROUTINE radar_output_create(out, n_layers)
-    TYPE(radar_output_type), INTENT(OUT) :: out
+  SUBROUTINE asrt_output_create(out, n_layers)
+    TYPE(asrt_output_type), INTENT(OUT) :: out
     INTEGER,                 INTENT(IN)  :: n_layers
     out%n_layers = n_layers
     ALLOCATE(out%z_lin(n_layers), out%z_dbz(n_layers), out%zatt_lin(n_layers), out%zatt_dbz(n_layers), &
              out%tau(n_layers), out%tau_gas(n_layers), out%tau_hydro(n_layers), out%tau_cum(n_layers), &
              out%trans2(n_layers), out%pia(n_layers), out%z_ms(n_layers))
-    CALL radar_output_zero(out)
-  END SUBROUTINE radar_output_create
+    CALL asrt_output_zero(out)
+  END SUBROUTINE asrt_output_create
 
-  SUBROUTINE radar_output_zero(out)
-    TYPE(radar_output_type), INTENT(INOUT) :: out
+  SUBROUTINE asrt_output_zero(out)
+    TYPE(asrt_output_type), INTENT(INOUT) :: out
     out%z_lin = ZERO; out%z_dbz = ZERO; out%zatt_lin = ZERO; out%zatt_dbz = ZERO
     out%tau = ZERO; out%tau_gas = ZERO; out%tau_hydro = ZERO; out%tau_cum = ZERO
     out%trans2 = ZERO; out%pia = ZERO; out%z_ms = ZERO
-  END SUBROUTINE radar_output_zero
+  END SUBROUTINE asrt_output_zero
 
-  SUBROUTINE radar_k_create(k, n_layers, n_species)
-    TYPE(radar_k_type), INTENT(OUT) :: k
+  SUBROUTINE asrt_k_create(k, n_layers, n_species)
+    TYPE(asrt_k_type), INTENT(OUT) :: k
     INTEGER,            INTENT(IN)  :: n_layers, n_species
     k%n_layers = n_layers; k%n_species = n_species
     ALLOCATE(k%t(n_layers, n_layers), k%q(n_layers, n_layers), k%rho(n_layers, n_layers, n_species))
     k%t = ZERO; k%q = ZERO; k%rho = ZERO
-  END SUBROUTINE radar_k_create
+  END SUBROUTINE asrt_k_create
 
   ! ===========================================================================
   ! Base state
   ! ===========================================================================
   SUBROUTINE compute_base(op, prof, wk, need_deriv)
-    TYPE(radar_operator_type), INTENT(IN)    :: op
-    TYPE(radar_profile_type),  INTENT(IN)    :: prof
+    TYPE(asrt_operator_type), INTENT(IN)    :: op
+    TYPE(asrt_profile_type),  INTENT(IN)    :: prof
     TYPE(work_type),           INTENT(INOUT) :: wk
     LOGICAL,                   INTENT(IN)    :: need_deriv
     INTEGER  :: n, ns, k, s
     REAL(fp) :: alt, bw, gam
-    TYPE(radar_config_type) :: c
+    TYPE(asrt_config_type) :: c
 
     c  = op%config
     n  = prof%n_layers
@@ -292,7 +292,7 @@ CONTAINS
 
     wk%dz = prof%z_int(0:n-1) - prof%z_int(1:n)
     IF (ANY(wk%dz <= ZERO)) THEN
-      WRITE(*,*) 'radar_operator: z_int must decrease with layer index (layer 1 at the top)'
+      WRITE(*,*) 'asrt_operator: z_int must decrease with layer index (layer 1 at the top)'
       ERROR STOP 1
     END IF
     wk%mu = COS(prof%zenith*PI/180.0_fp)
@@ -418,7 +418,7 @@ CONTAINS
   END SUBROUTINE compute_base
 
   SUBROUTINE tlad_limits(c, zmin, zcap)
-    TYPE(radar_config_type), INTENT(IN)  :: c
+    TYPE(asrt_config_type), INTENT(IN)  :: c
     REAL(fp),                INTENT(OUT) :: zmin, zcap
     zmin = TEN**(c%tlad_min_dbz/TEN)
     zcap = MAX(TEN**(c%tlad_cap_dbz/TEN), zmin)
@@ -427,10 +427,10 @@ CONTAINS
   ! ===========================================================================
   ! Forward
   ! ===========================================================================
-  SUBROUTINE radar_forward(op, prof, out)
-    TYPE(radar_operator_type), INTENT(IN)    :: op
-    TYPE(radar_profile_type),  INTENT(IN)    :: prof
-    TYPE(radar_output_type),   INTENT(INOUT) :: out
+  SUBROUTINE asrt_forward(op, prof, out)
+    TYPE(asrt_operator_type), INTENT(IN)    :: op
+    TYPE(asrt_profile_type),  INTENT(IN)    :: prof
+    TYPE(asrt_output_type),   INTENT(INOUT) :: out
     TYPE(work_type) :: wk
     CALL compute_base(op, prof, wk, .FALSE.)
     out%z_lin    = wk%z
@@ -456,17 +456,17 @@ CONTAINS
     out%trans2 = wk%trans2
     out%pia = TWO*TEN/LOG(TEN)*wk%scum/wk%mu
     out%z_ms = wk%zms
-  END SUBROUTINE radar_forward
+  END SUBROUTINE asrt_forward
 
   ! ===========================================================================
   ! Tangent linear
   ! ===========================================================================
-  SUBROUTINE radar_tl(op, prof, prof_tl, out_tl)
-    TYPE(radar_operator_type), INTENT(IN)    :: op
-    TYPE(radar_profile_type),  INTENT(IN)    :: prof, prof_tl
-    TYPE(radar_output_type),   INTENT(INOUT) :: out_tl
+  SUBROUTINE asrt_tl(op, prof, prof_tl, out_tl)
+    TYPE(asrt_operator_type), INTENT(IN)    :: op
+    TYPE(asrt_profile_type),  INTENT(IN)    :: prof, prof_tl
+    TYPE(asrt_output_type),   INTENT(INOUT) :: out_tl
     TYPE(work_type) :: wk
-    TYPE(radar_config_type) :: c
+    TYPE(asrt_config_type) :: c
     INTEGER  :: n, k, s
     REAL(fp) :: zmin, zcap, gam, dx(N_OPT)
     REAL(fp), DIMENSION(prof%n_layers) :: ag_tl, e_tl, s_tl, f_tl, g_tl, b_tl, a_tl, kappa_tl, tau_tl, &
@@ -581,20 +581,20 @@ CONTAINS
     out_tl%trans2 = t2_tl
     out_tl%pia = TWO*TEN/LOG(TEN)*scum_tl/wk%mu
     out_tl%z_ms = zms_tl
-  END SUBROUTINE radar_tl
+  END SUBROUTINE asrt_tl
 
   ! ===========================================================================
   ! Adjoint. Adjoint inputs in out_ad: z_lin, z_dbz, zatt_lin, zatt_dbz, tau,
   ! tau_cum, trans2, pia (accumulated, so any combination can be seeded).
   ! Results are accumulated into prof_ad (t, q, rho, tau_gas, bulk_*).
   ! ===========================================================================
-  SUBROUTINE radar_ad(op, prof, out_ad, prof_ad)
-    TYPE(radar_operator_type), INTENT(IN)    :: op
-    TYPE(radar_profile_type),  INTENT(IN)    :: prof
-    TYPE(radar_output_type),   INTENT(IN)    :: out_ad
-    TYPE(radar_profile_type),  INTENT(INOUT) :: prof_ad
+  SUBROUTINE asrt_ad(op, prof, out_ad, prof_ad)
+    TYPE(asrt_operator_type), INTENT(IN)    :: op
+    TYPE(asrt_profile_type),  INTENT(IN)    :: prof
+    TYPE(asrt_output_type),   INTENT(IN)    :: out_ad
+    TYPE(asrt_profile_type),  INTENT(INOUT) :: prof_ad
     TYPE(work_type) :: wk
-    TYPE(radar_config_type) :: c
+    TYPE(asrt_config_type) :: c
     INTEGER  :: n, k, s, j
     REAL(fp) :: zmin, zcap, gam, acc, ox(N_OPT)
     REAL(fp), DIMENSION(prof%n_layers) :: z_ad, zatt_ad, t2_ad, scum_ad, tau_ad, kappa_ad, &
@@ -705,26 +705,26 @@ CONTAINS
     END DO
     prof_ad%t = prof_ad%t + wk%dag_dt*ag_ad
     prof_ad%q = prof_ad%q + wk%dag_dq*ag_ad
-  END SUBROUTINE radar_ad
+  END SUBROUTINE asrt_ad
 
   ! ===========================================================================
   ! K-matrix (Jacobians) of one output quantity, by repeated adjoint calls.
   ! k%t(i,j) = d out(i) / d t(j), etc.
   ! ===========================================================================
-  SUBROUTINE radar_k(op, prof, which, k)
-    TYPE(radar_operator_type), INTENT(IN)    :: op
-    TYPE(radar_profile_type),  INTENT(IN)    :: prof
+  SUBROUTINE asrt_k(op, prof, which, k)
+    TYPE(asrt_operator_type), INTENT(IN)    :: op
+    TYPE(asrt_profile_type),  INTENT(IN)    :: prof
     INTEGER,                   INTENT(IN)    :: which
-    TYPE(radar_k_type),        INTENT(INOUT) :: k
-    TYPE(radar_output_type)  :: out_ad
-    TYPE(radar_profile_type) :: prof_ad
+    TYPE(asrt_k_type),        INTENT(INOUT) :: k
+    TYPE(asrt_output_type)  :: out_ad
+    TYPE(asrt_profile_type) :: prof_ad
     INTEGER :: i, n
     n = prof%n_layers
-    CALL radar_output_create(out_ad, n)
-    CALL radar_profile_create(prof_ad, n, prof%n_species, prof%has_bulk)
+    CALL asrt_output_create(out_ad, n)
+    CALL asrt_profile_create(prof_ad, n, prof%n_species, prof%has_bulk)
     DO i = 1, n
-      CALL radar_output_zero(out_ad)
-      CALL radar_profile_zero(prof_ad)
+      CALL asrt_output_zero(out_ad)
+      CALL asrt_profile_zero(prof_ad)
       SELECT CASE (which)
       CASE (OUT_Z_LIN);    out_ad%z_lin(i) = ONE
       CASE (OUT_Z_DBZ);    out_ad%z_dbz(i) = ONE
@@ -733,11 +733,11 @@ CONTAINS
       CASE (OUT_PIA);      out_ad%pia(i) = ONE
       CASE DEFAULT;        out_ad%zatt_dbz(i) = ONE
       END SELECT
-      CALL radar_ad(op, prof, out_ad, prof_ad)
+      CALL asrt_ad(op, prof, out_ad, prof_ad)
       k%t(i,:) = prof_ad%t
       k%q(i,:) = prof_ad%q
       k%rho(i,:,:) = prof_ad%rho
     END DO
-  END SUBROUTINE radar_k
+  END SUBROUTINE asrt_k
 
-END MODULE radar_operator
+END MODULE asrt_operator

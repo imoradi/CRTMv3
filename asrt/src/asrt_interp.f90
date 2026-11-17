@@ -1,5 +1,5 @@
 !
-! radar_interp
+! asrt_interp
 !
 ! Four-point interpolation used by the CRTM cloud optics lookup tables
 ! (two overlapping quadratic Lagrange polynomials blended linearly between
@@ -12,8 +12,8 @@
 ! Points outside the grid are clamped to the end points, where the
 ! derivative is zero.
 !
-MODULE radar_interp
-  USE radar_kinds, ONLY: fp, ZERO, ONE, CSTEP
+MODULE asrt_interp
+  USE asrt_kinds, ONLY: fp, ZERO, ONE, CSTEP
   IMPLICIT NONE
   PRIVATE
   PUBLIC :: interp_weights
@@ -112,4 +112,4 @@ CONTAINS
     CALL weights_c(x(i1:i1+3), xc, w)
   END SUBROUTINE interp_weights_c
 
-END MODULE radar_interp
+END MODULE asrt_interp
